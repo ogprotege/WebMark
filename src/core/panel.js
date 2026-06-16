@@ -3,7 +3,7 @@
 // the highlighter + storage, and offers live preview, export and a highlight list.
 (function () {
   const W = (globalThis.WebMark = globalThis.WebMark || {});
-  const { uid, normalizeWs, todayIso, debounce } = W.util;
+  const { uid, normalizeWs, debounce } = W.util;
 
   const PANEL_CSS = `
     :host{all:initial;}
@@ -79,6 +79,12 @@
       this.doc = this.contentRoot.ownerDocument || document;
       this.win = this.doc.defaultView || window;
       this.shiftTarget = opts.shiftTarget || this.doc.documentElement;
+      // lazy: the document isn't fully present (e.g. the PDF reader renders pages
+      // on demand), so don't flag highlights "not on page" just because their
+      // page hasn't rendered yet. resolveHighlight lets the host ensure a
+      // highlight's page is rendered before we scroll to it.
+      this.lazy = !!opts.lazy;
+      this.resolveHighlight = opts.resolveHighlight || null;
 
       this.store = new W.Storage.PageStore(this.pageKey);
       this.highlighter = new W.Highlighter(this.contentRoot, {
@@ -103,26 +109,74 @@
       this._buildSelectionButton();
 
       // Restore highlights from a previous session.
-      if (this.record.highlights && this.record.highlights.length) {
-        const missing = this.highlighter.restore(this.record.highlights);
-        if (missing.length) {
-          this.record.highlights = this.record.highlights.map((h) =>
-            missing.includes(h.id) ? { ...h, orphan: true } : h
-          );
-        }
-      }
+      this._restoreHighlights();
       this._renderHighlights();
 
-      // Reflect edits made in other tabs on the same page.
-      this.store.onExternalChange((nv) => {
-        if (!nv || this._typing) return;
-        this.record = nv;
-        if (this.textarea && this.textarea.value !== nv.note) this.textarea.value = nv.note || "";
+      // Reflect edits made in other tabs on the same page. A single listener
+      // keyed off the *current* store so it keeps working after switchPage().
+      chrome.storage.onChanged.addListener((changes, areaName) => {
+        if (areaName !== "local" || this._typing) return;
+        const change = changes[this.store.storageKey];
+        if (!change || !change.newValue) return;
+        this.record = change.newValue;
+        if (this.textarea && this.textarea.value !== (this.record.note || "")) {
+          this.textarea.value = this.record.note || "";
+        }
         this._renderHighlights();
         if (this.mode === "preview") this._renderPreview();
       });
 
       this.win.addEventListener("beforeunload", () => this.store.flushNow());
+    }
+
+    _restoreHighlights() {
+      const hls = this.record.highlights || [];
+      if (!hls.length) return;
+      const missing = this.highlighter.restore(hls);
+      // In lazy mode a "missing" highlight usually just means its page isn't
+      // rendered yet, so don't mark it orphaned.
+      if (!this.lazy && missing.length) {
+        this.record.highlights = hls.map((h) =>
+          missing.includes(h.id) ? { ...h, orphan: true } : { ...h, orphan: false }
+        );
+      }
+    }
+
+    // Re-apply stored highlights to the current DOM (used by the PDF reader
+    // after rendering a page, and after zoom). Idempotent.
+    reapplyHighlights() {
+      if (this.record.highlights && this.record.highlights.length) {
+        this.highlighter.restore(this.record.highlights);
+      }
+    }
+
+    // Switch the panel to a new page without a full reload (SPA navigation).
+    async switchPage(newKey, url, title) {
+      if (newKey === this.pageKey) return;
+      this.store.flushNow();
+      this.highlighter.clearAll();
+      this.pageKey = newKey;
+      this.url = url || this.url;
+      this.title = title || this.doc.title || this.url;
+      const titleEl = this.wrap && this.wrap.querySelector(".title");
+      if (titleEl) {
+        titleEl.textContent = this.title;
+        titleEl.title = this.title;
+      }
+      this.store = new W.Storage.PageStore(newKey);
+      this.record = await this.store.load();
+      this.record.url = this.url;
+      this.record.title = this.record.title || this.title;
+      if (this.textarea) this.textarea.value = this.record.note || "";
+      this._renderHighlights();
+      if (this.mode === "preview") this._renderPreview();
+      // SPA content can render slightly after the URL changes — retry briefly.
+      const retry = () => {
+        this._restoreHighlights();
+        this._renderHighlights();
+      };
+      setTimeout(retry, 150);
+      setTimeout(retry, 800);
     }
 
     /* ---------- UI construction ---------- */
@@ -299,8 +353,15 @@
       const anchor = W.Anchor.fromRange(range, this.contentRoot);
       const applied = this.highlighter.wrap(range, { id, color: this.color });
 
+      // Record which PDF page the highlight is on (if any) so we can jump to it
+      // even when pages render lazily. Plain web pages have no [data-page].
+      let page;
+      const host = range.startContainer.parentElement || range.startContainer;
+      const pageEl = host && host.closest ? host.closest("[data-page]") : null;
+      if (pageEl) page = Number(pageEl.dataset.page);
+
       const hl = {
-        id, color: this.color, quote: text, anchor,
+        id, color: this.color, quote: text, anchor, page,
         createdAt: Date.now(), orphan: applied === 0,
       };
       this.record.highlights = this.record.highlights || [];
@@ -360,7 +421,15 @@
 
     focusHighlight(id) {
       if (!this.isOpen) this.open();
-      this.highlighter.scrollTo(id);
+      if (this.highlighter.scrollTo(id)) return;
+      // Not currently in the DOM — in lazy mode, render its page then scroll.
+      const hl = (this.record.highlights || []).find((h) => h.id === id);
+      if (hl && this.resolveHighlight) {
+        Promise.resolve(this.resolveHighlight(hl)).then(() => {
+          this.highlighter.restore(this.record.highlights || []);
+          setTimeout(() => this.highlighter.scrollTo(id), 60);
+        });
+      }
     }
 
     _removeHighlight(id) {

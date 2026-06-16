@@ -1,6 +1,6 @@
 // Content-script entry for ordinary web pages. Loads after the core modules
-// (declared earlier in the manifest), restores any saved highlights, and wires
-// up messages from the background service worker.
+// (declared earlier in the manifest), restores any saved highlights, wires up
+// messages from the background service worker, and follows SPA navigations.
 (function () {
   if (window.__webmarkContentLoaded) return;
   window.__webmarkContentLoaded = true;
@@ -9,6 +9,7 @@
 
   let panel = null;
   let initing = null;
+  let lastKey = W.util.keyForUrl(location.href);
 
   function ensurePanel() {
     if (panel) return Promise.resolve(panel);
@@ -27,18 +28,20 @@
     return initing;
   }
 
-  // Restore highlights quietly on load if this page has saved notes.
-  (async function restoreIfSaved() {
+  // Build the (hidden) panel + restore highlights if this page has saved notes.
+  async function restoreIfSaved() {
     try {
       const key = W.util.keyForUrl(location.href);
       const rec = await new W.Storage.PageStore(key).load();
       if ((rec.highlights && rec.highlights.length) || rec.note) {
-        await ensurePanel(); // builds hidden panel + restores highlights
+        await ensurePanel();
       }
     } catch (e) {
       /* storage may be unavailable on some pages */
     }
-  })();
+  }
+
+  restoreIfSaved();
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (!msg || !msg.type) return;
@@ -57,13 +60,47 @@
     return true;
   });
 
-  // Basic SPA support: re-key the panel when the user navigates back/forward.
-  window.addEventListener("popstate", () => {
-    if (!panel) return;
-    const newKey = W.util.keyForUrl(location.href);
-    if (newKey !== panel.pageKey) {
-      // simplest safe behaviour: drop in-page marks and reload for the new URL
-      location.reload();
-    }
+  // --- automation / integration hook ---
+  // Lets page-context scripts (and browser automation like Chrome DevTools MCP)
+  // drive WebMark without needing the toolbar click, e.g.
+  //   document.dispatchEvent(new CustomEvent('webmark:control', { detail: 'open' }))
+  // detail is one of: 'open' | 'close' | 'toggle' | 'capture'. Opening a notes
+  // panel is harmless, so this needs no special permission.
+  document.addEventListener("webmark:control", (e) => {
+    const action = typeof e.detail === "string" ? e.detail : (e.detail && e.detail.action);
+    ensurePanel().then((p) => {
+      if (action === "open") p.open();
+      else if (action === "close") p.close();
+      else if (action === "capture") {
+        if (!p.isOpen) p.open();
+        p.addSelection();
+      } else {
+        p.toggle();
+      }
+    });
   });
+
+  // --- SPA route awareness ---
+  // Single-page apps change the URL without a full load. Detect it and re-key
+  // the panel (saving the old note, restoring the new one) instead of reloading.
+  function onLocationMaybeChanged() {
+    const key = W.util.keyForUrl(location.href);
+    if (key === lastKey) return;
+    lastKey = key;
+    if (panel) {
+      panel.switchPage(key, location.href, document.title);
+    } else {
+      restoreIfSaved();
+    }
+  }
+
+  window.addEventListener("popstate", onLocationMaybeChanged);
+  window.addEventListener("hashchange", onLocationMaybeChanged);
+  // The Navigation API fires for same-document SPA navigations (Chrome 102+).
+  if (window.navigation && window.navigation.addEventListener) {
+    window.navigation.addEventListener("navigatesuccess", onLocationMaybeChanged);
+  }
+  // Belt-and-braces: catch pushState/replaceState route changes that emit no
+  // event by polling the URL at a low frequency.
+  setInterval(onLocationMaybeChanged, 700);
 })();

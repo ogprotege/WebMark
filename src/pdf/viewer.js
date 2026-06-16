@@ -1,6 +1,7 @@
 // WebMark PDF reader. Renders the PDF with PDF.js (canvas + selectable text
 // layer) so the very same highlight/notes machinery used on web pages works on
-// PDFs — which is the main thing the original MVP couldn't do.
+// PDFs. Pages render lazily (on demand as they approach the viewport) and far
+// pages are evicted, so even very large PDFs open instantly and stay light.
 (function () {
   const W = globalThis.WebMark;
   const params = new URLSearchParams(location.search);
@@ -8,11 +9,19 @@
 
   const statusEl = document.getElementById("status");
   const pagesEl = document.getElementById("pages");
+
   let pdfDoc = null;
-  let scale = 1;
-  let baseScale = 1;
   let pdfjsLib = null;
   let panel = null;
+  let scale = 1;
+  let baseScale = 1;
+  let baseViewport = null; // first page @ scale 1, used to size placeholders
+  let io = null;
+
+  const pageDivs = [];               // 1-indexed page elements
+  const rendered = new Set();        // page numbers currently rendered
+  const renderTasks = new Map();     // page -> PDF.js RenderTask (for cancel)
+  const MAX_RENDERED = 14;           // memory cap for very large PDFs
 
   function setStatus(html) {
     statusEl.innerHTML = html;
@@ -25,6 +34,7 @@
   }
   document.getElementById("openOriginal").href = fileUrl;
 
+  /* ---------- load ---------- */
   async function main() {
     setStatus("Loading PDF…");
     try {
@@ -52,17 +62,24 @@
       "document.pdf";
     document.getElementById("filename").textContent = name;
     document.title = name + " — WebMark";
-    document.getElementById("pageinfo").textContent =
-      `${pdfDoc.numPages} page${pdfDoc.numPages > 1 ? "s" : ""}`;
+    document.getElementById("pageinfo").textContent = `1 / ${pdfDoc.numPages}`;
 
-    // Fit to width based on the first page.
     const first = await pdfDoc.getPage(1);
-    const vp1 = first.getViewport({ scale: 1 });
+    baseViewport = first.getViewport({ scale: 1 });
     const target = Math.min(Math.max(pagesEl.clientWidth - 24, 320), 920);
-    baseScale = Math.max(0.5, target / vp1.width);
+    baseScale = Math.max(0.5, target / baseViewport.width);
     scale = baseScale;
 
-    await renderAll();
+    io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) renderPage(Number(e.target.dataset.page));
+        }
+      },
+      { rootMargin: "1200px 0px" }
+    );
+
+    buildPlaceholders();
     setStatus("");
 
     panel = new W.Panel({
@@ -71,62 +88,189 @@
       title: name,
       contentRoot: pagesEl,
       shiftTarget: document.documentElement,
+      lazy: true,
+      resolveHighlight: (hl) => (hl && hl.page ? ensurePageRendered(hl.page) : Promise.resolve()),
     });
     await panel.init();
     panel.open(); // a reader: notes open by default
 
+    renderVisible();
     wireToolbar();
   }
 
-  async function renderAll() {
+  /* ---------- placeholders + lazy render ---------- */
+  function placeholderInner(n) {
+    return `<span class="pagenum">${n}</span>`;
+  }
+
+  function buildPlaceholders() {
     pagesEl.innerHTML = "";
-    const dpr = window.devicePixelRatio || 1;
+    rendered.clear();
+    renderTasks.clear();
+    pageDivs.length = 0;
+    const w = Math.floor(baseViewport.width * scale);
+    const h = Math.floor(baseViewport.height * scale);
     for (let n = 1; n <= pdfDoc.numPages; n++) {
-      const page = await pdfDoc.getPage(n);
-      const viewport = page.getViewport({ scale });
-
-      const pageDiv = document.createElement("div");
-      pageDiv.className = "page";
-      pageDiv.style.width = Math.floor(viewport.width) + "px";
-      pageDiv.style.height = Math.floor(viewport.height) + "px";
-      pageDiv.style.setProperty("--scale-factor", scale);
-      pageDiv.style.setProperty("--total-scale-factor", scale);
-
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.floor(viewport.width * dpr);
-      canvas.height = Math.floor(viewport.height * dpr);
-      canvas.style.width = Math.floor(viewport.width) + "px";
-      canvas.style.height = Math.floor(viewport.height) + "px";
-      pageDiv.appendChild(canvas);
-
-      const textDiv = document.createElement("div");
-      textDiv.className = "textLayer";
-      pageDiv.appendChild(textDiv);
-      pagesEl.appendChild(pageDiv);
-
-      await page.render({
-        canvasContext: canvas.getContext("2d"),
-        viewport,
-        transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null,
-      }).promise;
-
-      const textContent = await page.getTextContent();
-      const tl = new pdfjsLib.TextLayer({
-        textContentSource: textContent,
-        container: textDiv,
-        viewport,
-      });
-      await tl.render();
+      const div = document.createElement("div");
+      div.className = "page placeholder";
+      div.dataset.page = String(n);
+      div.style.width = w + "px";
+      div.style.height = h + "px";
+      div.style.setProperty("--scale-factor", scale);
+      div.innerHTML = placeholderInner(n);
+      pagesEl.appendChild(div);
+      pageDivs[n] = div;
+      io.observe(div);
     }
   }
 
+  async function renderPage(n) {
+    if (!n || rendered.has(n)) return;
+    rendered.add(n); // reserve immediately to avoid double-render
+    const myScale = scale;
+    let page;
+    try {
+      page = await pdfDoc.getPage(n);
+    } catch {
+      rendered.delete(n);
+      return;
+    }
+    const div = pageDivs[n];
+    if (!div || myScale !== scale) {
+      rendered.delete(n);
+      return;
+    }
+
+    const viewport = page.getViewport({ scale: myScale });
+    div.style.width = Math.floor(viewport.width) + "px";
+    div.style.height = Math.floor(viewport.height) + "px";
+    div.style.setProperty("--scale-factor", myScale);
+    div.style.setProperty("--total-scale-factor", myScale);
+    div.innerHTML = "";
+
+    const dpr = window.devicePixelRatio || 1;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.floor(viewport.width * dpr);
+    canvas.height = Math.floor(viewport.height * dpr);
+    canvas.style.width = Math.floor(viewport.width) + "px";
+    canvas.style.height = Math.floor(viewport.height) + "px";
+    div.appendChild(canvas);
+
+    const textDiv = document.createElement("div");
+    textDiv.className = "textLayer";
+    div.appendChild(textDiv);
+
+    const task = page.render({
+      canvasContext: canvas.getContext("2d"),
+      viewport,
+      transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null,
+    });
+    renderTasks.set(n, task);
+    try {
+      await task.promise;
+    } catch {
+      renderTasks.delete(n);
+      rendered.delete(n);
+      return; // cancelled (e.g. by a zoom) — leave as placeholder
+    }
+    renderTasks.delete(n);
+    if (myScale !== scale) {
+      rendered.delete(n);
+      return;
+    }
+
+    try {
+      const textContent = await page.getTextContent();
+      if (myScale === scale) {
+        const tl = new pdfjsLib.TextLayer({ textContentSource: textContent, container: textDiv, viewport });
+        await tl.render();
+      }
+    } catch {
+      /* text layer optional */
+    }
+
+    div.classList.remove("placeholder");
+    if (panel) panel.reapplyHighlights(); // re-attach highlights now on this page
+    evictIfNeeded(n);
+  }
+
+  function evictIfNeeded(center) {
+    if (rendered.size <= MAX_RENDERED) return;
+    // evict pages furthest from the one we just rendered
+    const order = [...rendered].sort((a, b) => Math.abs(b - center) - Math.abs(a - center));
+    for (const victim of order) {
+      if (rendered.size <= MAX_RENDERED) break;
+      if (victim === center) continue;
+      evict(victim);
+    }
+  }
+
+  function evict(p) {
+    const task = renderTasks.get(p);
+    if (task && task.cancel) {
+      try { task.cancel(); } catch {}
+    }
+    renderTasks.delete(p);
+    const div = pageDivs[p];
+    if (div) {
+      div.className = "page placeholder";
+      div.innerHTML = placeholderInner(p);
+    }
+    rendered.delete(p);
+  }
+
+  function renderVisible() {
+    const vh = window.innerHeight;
+    for (let n = 1; n < pageDivs.length; n++) {
+      const div = pageDivs[n];
+      if (!div) continue;
+      const r = div.getBoundingClientRect();
+      if (r.bottom > -1200 && r.top < vh + 1200) renderPage(n);
+    }
+  }
+
+  function ensurePageRendered(n) {
+    const div = pageDivs[n];
+    if (!div) return Promise.resolve();
+    div.scrollIntoView({ block: "center" });
+    if (rendered.has(n) && !div.classList.contains("placeholder")) return Promise.resolve();
+    return renderPage(n);
+  }
+
+  /* ---------- zoom + toolbar ---------- */
   function setZoom(s) {
     scale = Math.min(4, Math.max(0.3, s));
     document.getElementById("zoomLevel").textContent =
       Math.round((scale / baseScale) * 100) + "%";
-    renderAll().then(() => {
-      if (panel) panel.highlighter.restore(panel.record.highlights || []);
+    renderTasks.forEach((t) => {
+      if (t && t.cancel) { try { t.cancel(); } catch {} }
     });
+    renderTasks.clear();
+    rendered.clear();
+    const w = Math.floor(baseViewport.width * scale);
+    const h = Math.floor(baseViewport.height * scale);
+    for (let n = 1; n < pageDivs.length; n++) {
+      const div = pageDivs[n];
+      if (!div) continue;
+      div.className = "page placeholder";
+      div.style.width = w + "px";
+      div.style.height = h + "px";
+      div.style.setProperty("--scale-factor", scale);
+      div.innerHTML = placeholderInner(n);
+    }
+    renderVisible();
+  }
+
+  function currentPage() {
+    let best = 1;
+    let bestDist = Infinity;
+    for (let n = 1; n < pageDivs.length; n++) {
+      const div = pageDivs[n];
+      if (!div) continue;
+      const d = Math.abs(div.getBoundingClientRect().top - 70);
+      if (d < bestDist) { bestDist = d; best = n; }
+    }
+    return best;
   }
 
   function wireToolbar() {
@@ -134,6 +278,21 @@
     document.getElementById("zoomIn").onclick = () => setZoom(scale * 1.15);
     document.getElementById("zoomOut").onclick = () => setZoom(scale / 1.15);
     document.getElementById("toggleNotes").onclick = () => panel && panel.toggle();
+
+    let ticking = false;
+    window.addEventListener(
+      "scroll",
+      () => {
+        if (ticking) return;
+        ticking = true;
+        requestAnimationFrame(() => {
+          document.getElementById("pageinfo").textContent =
+            `${currentPage()} / ${pdfDoc.numPages}`;
+          ticking = false;
+        });
+      },
+      { passive: true }
+    );
   }
 
   // Respond to the toolbar button / keyboard shortcut routed via the background.
@@ -144,6 +303,20 @@
       if (!panel.isOpen) panel.open();
       panel.addSelection();
     }
+  });
+
+  // Automation / integration hook (mirrors the content script): drive the
+  // reader's panel from page-context JS, e.g.
+  //   document.dispatchEvent(new CustomEvent('webmark:control', { detail: 'capture' }))
+  document.addEventListener("webmark:control", (e) => {
+    if (!panel) return;
+    const action = typeof e.detail === "string" ? e.detail : (e.detail && e.detail.action);
+    if (action === "open") panel.open();
+    else if (action === "close") panel.close();
+    else if (action === "capture") {
+      if (!panel.isOpen) panel.open();
+      panel.addSelection();
+    } else panel.toggle();
   });
 
   main();

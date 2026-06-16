@@ -127,6 +127,34 @@ setBody(`<p id="p1">The quick brown fox jumps.</p>
   eq(doc.querySelectorAll('mark[data-webmark-id="r1"]').length, 1, "no duplicate marks");
 }
 
+/* ---- 4b. clearAll() unwraps every highlight (used on SPA page switch) ---- */
+{
+  setBody(`<p id="cp">one two three four five six</p>`);
+  const tn = doc.getElementById("cp").firstChild;
+  const hl = new W.Highlighter(doc.body, {});
+  const mk = (a, b, id) => {
+    const r = doc.createRange();
+    r.setStart(tn, a);
+    r.setEnd(tn, b);
+    hl.wrap(r, { id, color: "yellow" });
+  };
+  // wrap two separate spans (note: wrap on the same text node sequentially is
+  // fine because each wraps a fresh sub-range)
+  setBody(`<p id="cp2">alpha beta gamma delta</p>`);
+  const tn2 = doc.getElementById("cp2").firstChild;
+  const hl2 = new W.Highlighter(doc.body, {});
+  let r1 = doc.createRange(); r1.setStart(tn2, 0); r1.setEnd(tn2, 5);
+  hl2.wrap(r1, { id: "a", color: "yellow" });
+  const tn2b = doc.getElementById("cp2").lastChild; // remaining text after first wrap
+  let r2 = doc.createRange(); r2.setStart(tn2b, tn2b.nodeValue.indexOf("gamma"));
+  r2.setEnd(tn2b, tn2b.nodeValue.indexOf("gamma") + 5);
+  hl2.wrap(r2, { id: "b", color: "green" });
+  ok(doc.querySelectorAll("mark.webmark-hl").length >= 2, "two highlights present before clearAll");
+  hl2.clearAll();
+  ok(doc.querySelectorAll("mark.webmark-hl").length === 0, "clearAll removed all highlights");
+  eq(doc.getElementById("cp2").textContent, "alpha beta gamma delta", "text intact after clearAll");
+}
+
 /* ---- 5. anchor reports missing text gracefully ---- */
 {
   setBody(`<p>nothing relevant here</p>`);

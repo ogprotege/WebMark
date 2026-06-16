@@ -111,6 +111,19 @@
       return marks.length;
     }
 
+    // Unwrap every highlight in the root (used when switching pages in an SPA).
+    clearAll() {
+      const marks = this.root.querySelectorAll("mark.webmark-hl");
+      marks.forEach((mark) => {
+        const parent = mark.parentNode;
+        if (!parent) return;
+        while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+        parent.removeChild(mark);
+        parent.normalize();
+      });
+      return marks.length;
+    }
+
     setColor(id, color) {
       this.root
         .querySelectorAll(`mark.webmark-hl[data-webmark-id="${CSS.escape(id)}"]`)
