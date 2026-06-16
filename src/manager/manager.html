@@ -40,6 +40,17 @@
     .btn.primary { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
     .btn.danger:hover { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
     .empty { text-align: center; color: #94a3b8; padding: 50px 0; }
+    details.exp { position: relative; }
+    details.exp > summary { list-style: none; cursor: pointer; }
+    details.exp > summary::-webkit-details-marker { display: none; }
+    details.exp .menu {
+      position: absolute; right: 0; top: 110%; z-index: 10; min-width: 178px;
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18); padding: 5px;
+    }
+    details.exp .menu button { display: block; width: 100%; text-align: left; border: 0; background: transparent;
+      padding: 8px 10px; border-radius: 7px; font-size: 13px; color: #334155; cursor: pointer; }
+    details.exp .menu button:hover { background: #eef2ff; color: #1d4ed8; }
   </style>
 </head>
 <body>
@@ -68,8 +79,10 @@
   </div>
 
   <script src="../core/util.js"></script>
+  <script src="../core/markdown.js"></script>
   <script src="../core/storage.js"></script>
   <script src="../core/highlighter.js"></script>
+  <script src="../core/export.js"></script>
   <script src="manager.js"></script>
 </body>
 </html>

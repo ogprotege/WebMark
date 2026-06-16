@@ -20,31 +20,12 @@
     catch { return ""; }
   }
 
-  function buildMarkdown(rec) {
-    return [
-      `# ${rec.title || rec.url}`,
-      "",
-      `*Source:* ${rec.url || ""}`,
-      `*Saved:* ${fmtDate(rec.updatedAt)}`,
-      "",
-      "---",
-      "",
-      (rec.note || "").trim() || "_(no notes yet)_",
-      "",
-    ].join("\n");
-  }
-
-  function download(rec) {
-    const blob = new Blob([buildMarkdown(rec)], { type: "text/markdown" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    const base = (rec.title || "webmark").replace(/[^\w.-]+/g, "-").slice(0, 60).replace(/^-+|-+$/g, "");
-    a.href = url;
-    a.download = `${base || "webmark"}.md`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  function exportMenuHtml() {
+    return (
+      `<details class="exp"><summary class="btn">Export ▾</summary><div class="menu">` +
+      W.Export.FORMATS.map((f) => `<button data-fmt="${f.id}">${esc(f.label)}</button>`).join("") +
+      `</div></details>`
+    );
   }
 
   function render() {
@@ -77,13 +58,19 @@
           ${hlCount ? `<span class="pill">${hlCount} highlight${hlCount > 1 ? "s" : ""}</span>` : ""}
           <span style="flex:1"></span>
           <button class="btn primary" data-act="open">Open</button>
-          <button class="btn" data-act="export">Export .md</button>
+          ${exportMenuHtml()}
           <button class="btn danger" data-act="delete">Delete</button>
         </div>`;
       card.querySelector('[data-act="open"]').onclick = () => {
         chrome.tabs.create({ url: isPdf(rec.url) ? viewerUrl(rec.url) : rec.url });
       };
-      card.querySelector('[data-act="export"]').onclick = () => download(rec);
+      card.querySelectorAll("[data-fmt]").forEach((b) => {
+        b.onclick = () => {
+          W.Export.exportAs(b.dataset.fmt, rec);
+          const d = b.closest("details");
+          if (d) d.open = false;
+        };
+      });
       card.querySelector('[data-act="delete"]').onclick = async () => {
         if (!confirm("Delete the notes and highlights for this page?")) return;
         await new W.Storage.PageStore(rec.key).remove();

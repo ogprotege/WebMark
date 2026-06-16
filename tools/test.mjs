@@ -9,6 +9,7 @@ const files = [
   "src/core/anchor.js",
   "src/core/storage.js",
   "src/core/highlighter.js",
+  "src/core/export.js",
 ];
 for (const f of files) {
   vm.runInThisContext(readFileSync(new URL("../" + f, import.meta.url), "utf8"), { filename: f });
@@ -80,6 +81,54 @@ eq(A.indexToBoundary(index, 0), { node: "N1", offset: 0 }, "indexToBoundary maps
 /* ---- storage settings defaults ---- */
 ok(W.Storage.DEFAULT_SETTINGS.autoOpenPdf === true, "default autoOpenPdf true");
 ok(Array.isArray(W.COLORS) && W.COLORS.length >= 3, "color palette present");
+
+/* ---- export module ---- */
+const X = W.Export;
+const rec = {
+  title: "My <Article>",
+  url: "https://x.com/a",
+  note: "# Heading\n\n**bold** and *italic* and `code`\n\n- one\n- two\n\n> a quote",
+  updatedAt: Date.parse("2026-01-02"),
+};
+ok(X.FORMATS.some((f) => f.id === "docx") && X.FORMATS.some((f) => f.id === "pdf"),
+   "export offers docx and pdf formats");
+ok(X.toMarkdown(rec).includes("# My <Article>") && X.toMarkdown(rec).includes("> a quote"),
+   "toMarkdown includes title + note");
+{
+  const t = X.toPlainText(rec);
+  ok(!t.includes("**") && !t.includes("`") && t.includes("bold and italic and code"),
+     "toPlainText strips markdown syntax");
+  ok(t.includes("• one"), "toPlainText converts bullets");
+}
+{
+  const h = X.toHtmlDoc(rec);
+  ok(h.includes("<!DOCTYPE html>") && h.includes("<h1>My &lt;Article&gt;</h1>"),
+     "toHtmlDoc escapes title + is a full document");
+  ok(h.includes("<blockquote>"), "toHtmlDoc renders the markdown body");
+}
+
+/* crc32 against the standard check value */
+eq(X.crc32(new TextEncoder().encode("123456789")), 0xcbf43926, "crc32 matches the standard check value");
+
+/* zip writer produces a valid stored archive */
+{
+  const buf = X.zipStore([{ name: "a.txt", data: "hello" }]);
+  ok(buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04, "zip starts with PK\\x03\\x04");
+  const s = new TextDecoder().decode(buf);
+  ok(s.includes("a.txt") && s.includes("hello"), "zip contains the stored file name + data");
+  ok(s.includes("PK\x05\x06"), "zip has an end-of-central-directory record");
+}
+
+/* docx is a valid OOXML zip whose document.xml carries the note text */
+{
+  const blob = X.toDocxBlob(rec);
+  ok(blob && blob.size > 0, "toDocxBlob produces a non-empty Blob");
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  const s = new TextDecoder().decode(buf);
+  ok(s.includes("word/document.xml") && s.includes("[Content_Types].xml"), "docx contains required OOXML parts");
+  ok(s.includes("<w:document"), "docx document.xml is present (stored, uncompressed)");
+  ok(s.includes("a quote"), "docx carries the note text");
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -59,6 +59,7 @@ async function handleAction(tab, message) {
           "src/core/anchor.js",
           "src/core/storage.js",
           "src/core/highlighter.js",
+          "src/core/export.js",
           "src/core/panel.js",
           "src/content.js",
         ],

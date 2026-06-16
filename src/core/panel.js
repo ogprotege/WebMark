@@ -52,6 +52,15 @@
     .btn{border:1px solid #e2e8f0;background:#fff;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer;color:#334155;}
     .btn:hover{background:#f1f5f9;} .btn.primary{background:#1d4ed8;border-color:#1d4ed8;color:#fff;}
     .btn.primary:hover{background:#1e40af;}
+    .menu-wrap{position:relative;}
+    .menu{position:absolute;top:110%;right:0;background:#fff;border:1px solid #e2e8f0;border-radius:10px;
+      box-shadow:0 10px 30px rgba(15,23,42,.18);padding:5px;min-width:172px;z-index:5;display:none;}
+    .menu.open{display:block;}
+    .menu button{display:block;width:100%;text-align:left;border:0;background:transparent;
+      padding:8px 10px;border-radius:7px;font-size:13px;color:#334155;cursor:pointer;}
+    .menu button:hover{background:#eef2ff;color:#1d4ed8;}
+    .menu .menu-head{padding:6px 10px 2px;font-size:10px;font-weight:700;letter-spacing:.05em;
+      text-transform:uppercase;color:#94a3b8;}
     .grip{position:absolute;left:-3px;top:0;width:6px;height:100%;cursor:col-resize;}
     .toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#0f172a;color:#fff;
       padding:8px 14px;border-radius:8px;font-size:12px;opacity:0;transition:opacity .2s;pointer-events:none;}
@@ -144,7 +153,10 @@
           <div class="swatches" data-role="swatches"></div>
           <span class="spacer"></span>
           <button class="iconbtn" data-act="copy" title="Copy markdown">${ICON('<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>')}</button>
-          <button class="iconbtn" data-act="export" title="Export .md">${ICON('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/>')}</button>
+          <span class="menu-wrap">
+            <button class="iconbtn" data-act="export-menu" title="Export…">${ICON('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/>')}</button>
+            <div class="menu" data-role="export-menu"><div class="menu-head">Export as</div></div>
+          </span>
         </div>
         <div class="body" data-role="body">
           <textarea data-role="editor" placeholder="Select text on the page to capture it here, or just start writing your notes in Markdown…"></textarea>
@@ -170,12 +182,35 @@
       this.textarea.value = this.record.note || "";
 
       this._renderSwatches();
+      this._buildExportMenu();
       wrap.addEventListener("click", (e) => this._onClick(e));
       this.textarea.addEventListener("input", () => this._onInput());
       this._initResize(wrap.querySelector(".grip"));
+      // close the export menu when clicking elsewhere in the panel
+      wrap.addEventListener("click", (e) => {
+        if (!e.target.closest(".menu-wrap")) this._closeExportMenu();
+      });
 
       this.doc.body.appendChild(this.host);
       this.host.style.display = "none";
+    }
+
+    _buildExportMenu() {
+      const menu = this.wrap.querySelector('[data-role="export-menu"]');
+      (W.Export ? W.Export.FORMATS : []).forEach((f) => {
+        const b = this.doc.createElement("button");
+        b.textContent = f.label;
+        b.addEventListener("click", () => {
+          this._closeExportMenu();
+          this._exportAs(f.id);
+        });
+        menu.appendChild(b);
+      });
+    }
+
+    _closeExportMenu() {
+      const menu = this.wrap.querySelector('[data-role="export-menu"]');
+      if (menu) menu.classList.remove("open");
     }
 
     _renderSwatches() {
@@ -203,7 +238,9 @@
         case "mode-edit": this._setMode("edit"); break;
         case "mode-preview": this._setMode("preview"); break;
         case "copy": this._copy(); break;
-        case "export": this._export(); break;
+        case "export-menu":
+          this.wrap.querySelector('[data-role="export-menu"]').classList.toggle("open");
+          break;
         case "clear": this._clear(); break;
         case "manager": chrome.runtime.sendMessage({ type: "open-manager" }); break;
       }
@@ -334,39 +371,29 @@
     }
 
     /* ---------- export / copy / clear ---------- */
-    _buildMarkdown() {
-      const lines = [
-        `# ${this.title}`,
-        "",
-        `*Source:* ${this.url}`,
-        `*Saved:* ${todayIso()}`,
-        "",
-        "---",
-        "",
-        this.textarea.value.trim() || "_(no notes yet)_",
-        "",
-      ];
-      return lines.join("\n");
+    _rec() {
+      return {
+        title: this.title,
+        url: this.url,
+        note: this.textarea.value,
+        highlights: this.record.highlights || [],
+        updatedAt: Date.now(),
+      };
     }
 
-    _export() {
-      const md = this._buildMarkdown();
-      const blob = new Blob([md], { type: "text/markdown" });
-      const url = URL.createObjectURL(blob);
-      const a = this.doc.createElement("a");
-      const base = (this.title || "webmark").replace(/[^\w.-]+/g, "-").slice(0, 60).replace(/^-+|-+$/g, "");
-      a.href = url;
-      a.download = `${base || "webmark"}-${todayIso()}.md`;
-      this.doc.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
-      this._toast("Exported .md");
+    _exportAs(format) {
+      try {
+        W.Export.exportAs(format, this._rec());
+        const label = (W.Export.FORMATS.find((f) => f.id === format) || {}).label || format;
+        this._toast(format === "pdf" ? "Opening print…" : "Exported " + label);
+      } catch (e) {
+        this._toast("Export failed");
+      }
     }
 
     async _copy() {
       try {
-        await navigator.clipboard.writeText(this._buildMarkdown());
+        await navigator.clipboard.writeText(W.Export.toMarkdown(this._rec()));
         this._toast("Copied markdown");
       } catch {
         this._toast("Copy failed — try export");
