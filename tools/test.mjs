@@ -130,5 +130,77 @@ eq(X.crc32(new TextEncoder().encode("123456789")), 0xcbf43926, "crc32 matches th
   ok(s.includes("a quote"), "docx carries the note text");
 }
 
+/* ---- storage Backup & Restore (with a fake chrome.storage.local) ---- */
+{
+  const makeFakeChrome = (initial = {}) => {
+    let data = { ...initial };
+    return {
+      storage: {
+        local: {
+          get: async (k) => {
+            if (k == null) return { ...data };
+            if (typeof k === "string") return k in data ? { [k]: data[k] } : {};
+            const out = {};
+            (Array.isArray(k) ? k : Object.keys(k)).forEach((x) => { if (x in data) out[x] = data[x]; });
+            return out;
+          },
+          set: async (obj) => { Object.assign(data, obj); },
+          remove: async (k) => { (Array.isArray(k) ? k : [k]).forEach((x) => delete data[x]); },
+        },
+        onChanged: { addListener() {} },
+      },
+      _dump: () => data,
+    };
+  };
+
+  // export gathers notes + settings, ignores unrelated keys
+  globalThis.chrome = makeFakeChrome({
+    "wm:https://a.com/x": { key: "https://a.com/x", note: "alpha", updatedAt: 100 },
+    "wm:https://b.com/y": { key: "https://b.com/y", note: "beta", updatedAt: 200 },
+    "wm:settings": { defaultColor: "green" },
+    "unrelated": { foo: 1 },
+  });
+  const backup = await W.Storage.exportAll();
+  eq(Object.keys(backup.notes).length, 2, "exportAll captures only note records");
+  ok(backup.type === "webmark-backup" && backup.settings.defaultColor === "green", "exportAll includes settings + type tag");
+  ok(!("unrelated" in backup.notes), "exportAll ignores non-WebMark keys");
+
+  // import merge keeps the newer record, adds new ones, skips older
+  globalThis.chrome = makeFakeChrome({
+    "wm:https://a.com/x": { key: "https://a.com/x", note: "OLD-local", updatedAt: 50 },
+  });
+  const importData = {
+    type: "webmark-backup",
+    notes: {
+      "wm:https://a.com/x": { key: "https://a.com/x", note: "NEW-backup", updatedAt: 100 }, // newer -> wins
+      "wm:https://c.com/z": { key: "https://c.com/z", note: "added", updatedAt: 10 },        // new -> added
+    },
+  };
+  const res = await W.Storage.importAll(importData, "merge");
+  eq([res.added, res.updated, res.skipped], [1, 1, 0], "importAll merge counts (added/updated/skipped)");
+  eq(chrome._dump()["wm:https://a.com/x"].note, "NEW-backup", "merge keeps the newer note");
+
+  // merge skips when local is newer
+  globalThis.chrome = makeFakeChrome({
+    "wm:https://a.com/x": { key: "https://a.com/x", note: "LOCAL-newer", updatedAt: 999 },
+  });
+  const res2 = await W.Storage.importAll(importData, "merge");
+  eq(res2.skipped, 1, "merge skips when local copy is newer");
+  eq(chrome._dump()["wm:https://a.com/x"].note, "LOCAL-newer", "merge leaves newer local note intact");
+
+  // replace mode overwrites regardless of timestamps
+  globalThis.chrome = makeFakeChrome({
+    "wm:https://a.com/x": { key: "https://a.com/x", note: "LOCAL-newer", updatedAt: 999 },
+  });
+  await W.Storage.importAll(importData, "replace");
+  eq(chrome._dump()["wm:https://a.com/x"].note, "NEW-backup", "replace overwrites even a newer local note");
+
+  // rejects non-backup files
+  let threw = false;
+  try { await W.Storage.importAll({ foo: 1 }, "merge"); } catch { threw = true; }
+  ok(threw, "importAll rejects files that aren't WebMark backups");
+  delete globalThis.chrome;
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

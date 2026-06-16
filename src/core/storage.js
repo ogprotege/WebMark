@@ -40,6 +40,62 @@
       .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   }
 
+  // --- local Backup & Restore (user-owned, no cloud) ---
+  // Serialise every note + settings into a single portable object the user
+  // controls. Nothing here ever leaves the machine unless the user saves the file.
+  async function exportAll() {
+    const all = await area().get(null);
+    const notes = {};
+    Object.keys(all).forEach((k) => {
+      if (k.startsWith(PREFIX) && k !== SETTINGS_KEY) notes[k] = all[k];
+    });
+    return {
+      app: "WebMark",
+      type: "webmark-backup",
+      schema: 1,
+      exportedAt: new Date().toISOString(),
+      settings: all[SETTINGS_KEY] || {},
+      notes,
+    };
+  }
+
+  // Restore from a backup object. mode "merge" keeps whichever copy is newer
+  // per page; mode "replace" overwrites local data with the backup's.
+  // Returns counts so the UI can report what happened.
+  async function importAll(data, mode = "merge") {
+    if (!data || data.type !== "webmark-backup" || !data.notes) {
+      throw new Error("Not a WebMark backup file");
+    }
+    const existing = await area().get(null);
+    const toWrite = {};
+    let added = 0, updated = 0, skipped = 0;
+
+    for (const [key, rec] of Object.entries(data.notes)) {
+      if (!key.startsWith(PREFIX)) continue;
+      const cur = existing[key];
+      if (!cur) {
+        toWrite[key] = rec;
+        added++;
+      } else if (mode === "replace") {
+        toWrite[key] = rec;
+        updated++;
+      } else {
+        // merge: keep the newer record
+        if ((rec.updatedAt || 0) > (cur.updatedAt || 0)) {
+          toWrite[key] = rec;
+          updated++;
+        } else {
+          skipped++;
+        }
+      }
+    }
+    if (data.settings && mode === "replace") {
+      toWrite[SETTINGS_KEY] = Object.assign({}, DEFAULT_SETTINGS, data.settings);
+    }
+    if (Object.keys(toWrite).length) await area().set(toWrite);
+    return { added, updated, skipped, total: Object.keys(data.notes).length };
+  }
+
   class PageStore {
     constructor(pageKey) {
       this.key = pageKey;
@@ -94,5 +150,8 @@
     }
   }
 
-  W.Storage = { PageStore, getSettings, setSettings, listNotes, DEFAULT_SETTINGS };
+  W.Storage = {
+    PageStore, getSettings, setSettings, listNotes,
+    exportAll, importAll, DEFAULT_SETTINGS,
+  };
 })();

@@ -103,6 +103,44 @@
     sel.addEventListener("change", (e) => {
       W.Storage.setSettings({ defaultColor: e.target.value });
     });
+
+    initBackup();
+  }
+
+  function initBackup() {
+    document.getElementById("exportAll").onclick = async () => {
+      const data = await W.Storage.exportAll();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      W.Export.downloadBlob(blob, `webmark-backup-${W.util.todayIso()}.json`);
+    };
+
+    const fileInput = document.getElementById("importFile");
+    document.getElementById("importAll").onclick = () => fileInput.click();
+    fileInput.onchange = async () => {
+      const file = fileInput.files && fileInput.files[0];
+      fileInput.value = "";
+      if (!file) return;
+      let data;
+      try {
+        data = JSON.parse(await file.text());
+      } catch {
+        alert("That doesn't look like a valid WebMark backup file.");
+        return;
+      }
+      const replace = confirm(
+        "Import this backup?\n\nOK = merge (keep the newer copy of each note)\nCancel = replace everything with the backup"
+      );
+      try {
+        const res = await W.Storage.importAll(data, replace ? "merge" : "replace");
+        notes = await W.Storage.listNotes();
+        render();
+        alert(
+          `Imported ${res.total} note(s): ${res.added} added, ${res.updated} updated, ${res.skipped} unchanged.`
+        );
+      } catch (e) {
+        alert("Import failed: " + (e && e.message ? e.message : "invalid file"));
+      }
+    };
   }
 
   async function main() {

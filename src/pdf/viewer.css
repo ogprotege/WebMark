@@ -50,6 +50,16 @@ html, body {
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
 }
 .page canvas { display: block; }
+.page.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.page .pagenum {
+  color: #c7ccd1;
+  font-size: 13px;
+  letter-spacing: 0.05em;
+}
 
 /* --- PDF.js text layer (minimal, from pdf.js) --- */
 .textLayer {

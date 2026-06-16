@@ -25,7 +25,7 @@ note exports to Markdown, plain text, HTML, Word, and PDF.
 ![HTML5](https://img.shields.io/badge/HTML5-_-e34f26?style=flat&logo=html5&logoColor=white)
 ![CSS3](https://img.shields.io/badge/CSS3-_-1572b6?style=flat&logo=css3&logoColor=white)
 ![Dependencies](https://img.shields.io/badge/dependencies-zero-22c55e?style=flat)
-![Tests](https://img.shields.io/badge/tests-57_passing-3fb950?style=flat)
+![Tests](https://img.shields.io/badge/tests-69_passing-3fb950?style=flat)
 
 </div>
 
@@ -92,9 +92,15 @@ place on the page. WebMark collapses that into one uninterrupted flow:
 - **Live Markdown preview.** Toggle between **Write** and **Preview**.
 - **Real PDF support.** PDFs open in WebMark's bundled reader (PDF.js) where text is
   selectable, so the same highlight + notes flow works on PDFs — local files included.
+  Pages **render lazily** (on demand as you scroll, with far pages evicted), so even very
+  large PDFs open instantly and stay light on memory.
+- **Works in single‑page apps.** When a site changes the URL without a full reload, WebMark
+  switches notes/highlights to the new page on the fly — no reload, no lost context.
 - **Autosave**, scoped per page (origin + path), debounced so typing stays smooth.
 - **Multi‑format export & copy:** `.md`, `.txt`, `.html`, `.docx`, and PDF (via print),
   plus one‑click copy‑as‑Markdown.
+- **Local Backup & Restore.** Export every note to a single JSON file *you* own, and import
+  it back (merge or replace) — your way to back up or move data, with nothing ever uploaded.
 - **"All notes" dashboard.** Browse, search, re‑open, export, or delete every note.
 - **Highlight list** in the panel — click to jump to a highlight, or remove it.
 - **Cross‑tab sync** and a **resizable, remembered** panel width.
@@ -192,6 +198,9 @@ Open **All notes** from the panel footer (or the extension's *Options* entry on
 - **Export** any note in any of the five formats.
 - **Delete** notes you no longer need.
 - **Adjust settings** — auto‑open PDFs in the reader, and your default highlight colour.
+- **Back up & restore** — export all notes to a JSON file you control, and import it back
+  (merge keeps the newer copy of each note; replace overwrites). Fully local, nothing
+  uploaded.
 
 ---
 
@@ -207,9 +216,11 @@ Open **All notes** from the panel footer (or the extension's *Options* entry on
   close the panel or leave the page.
 - **Offline** — nothing depends on the network, so a network outage cannot lose your notes;
   they were never in transit.
-- **Backups / portability** — export important notes to keep file copies. Browser‑managed
-  storage is tied to your Chrome profile; clearing the extension's data or removing it
-  deletes its stored notes, so export anything you want to keep long‑term.
+- **Backups / portability** — use **All notes → Backup & restore** to export *everything*
+  to one JSON file you control, and import it on another machine (or after a reinstall).
+  You can also export individual notes to `.md`/`.docx`/etc. Browser‑managed storage is tied
+  to your Chrome profile; clearing the extension's data or removing it deletes its stored
+  notes, so keep a backup of anything you want long‑term. **No cloud, no account, by design.**
 
 ---
 
@@ -270,8 +281,9 @@ npm run icons      # regenerate PNG icons (pure-Python, no deps)
 ```
 
 `npm test` covers URL keying, the Markdown renderer (including link/HTML sanitising), the
-anchoring matcher, all five exporters (including a CRC‑checked `.docx` ZIP), and full
-wrap → remove → reload‑restore round‑trips in jsdom.
+anchoring matcher, all five exporters (including a CRC‑checked `.docx` ZIP), local
+backup/restore (merge & replace), and full wrap → remove → reload‑restore round‑trips
+(plus `clearAll`) in jsdom — 69 assertions.
 
 ---
 
@@ -279,9 +291,8 @@ wrap → remove → reload‑restore round‑trips in jsdom.
 
 - **PDFs with no `.pdf` extension** aren't auto‑detected — use the right‑click menu to open
   them in the reader.
-- **Single‑page apps** — notes are keyed by URL; for SPAs that change the URL without a full
-  load, WebMark reloads when you navigate back/forward.
-- The reader renders all pages up front, which can be heavy for very large PDFs.
+- **Single‑page apps** — handled by re‑keying the panel on in‑app navigation; very unusual
+  routing schemes may still need a manual refresh.
 - **Scanned / image‑only PDFs** have no selectable text, so they can't be highlighted (you
   can still take notes).
 - **PDF export** uses the browser print dialog (choose "Save as PDF"); it isn't a silent
@@ -316,6 +327,6 @@ otherwise it's listed as "not on page".
 **MIT** © William Sherman · original concept by [Ross Warren](https://github.com/rosswarren99/markup)
 · bundled [PDF.js](https://mozilla.github.io/pdf.js/) © Mozilla (Apache‑2.0)
 
-<sub>Made with care for a brother who didn't have time to build it himself. 💙</sub>
+<sub>Made with care for the best little brother. 💙</sub>
 
 </div>
