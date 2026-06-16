@@ -305,5 +305,19 @@
     }
   });
 
+  // Automation / integration hook (mirrors the content script): drive the
+  // reader's panel from page-context JS, e.g.
+  //   document.dispatchEvent(new CustomEvent('webmark:control', { detail: 'capture' }))
+  document.addEventListener("webmark:control", (e) => {
+    if (!panel) return;
+    const action = typeof e.detail === "string" ? e.detail : (e.detail && e.detail.action);
+    if (action === "open") panel.open();
+    else if (action === "close") panel.close();
+    else if (action === "capture") {
+      if (!panel.isOpen) panel.open();
+      panel.addSelection();
+    } else panel.toggle();
+  });
+
   main();
 })();

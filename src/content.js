@@ -60,6 +60,26 @@
     return true;
   });
 
+  // --- automation / integration hook ---
+  // Lets page-context scripts (and browser automation like Chrome DevTools MCP)
+  // drive WebMark without needing the toolbar click, e.g.
+  //   document.dispatchEvent(new CustomEvent('webmark:control', { detail: 'open' }))
+  // detail is one of: 'open' | 'close' | 'toggle' | 'capture'. Opening a notes
+  // panel is harmless, so this needs no special permission.
+  document.addEventListener("webmark:control", (e) => {
+    const action = typeof e.detail === "string" ? e.detail : (e.detail && e.detail.action);
+    ensurePanel().then((p) => {
+      if (action === "open") p.open();
+      else if (action === "close") p.close();
+      else if (action === "capture") {
+        if (!p.isOpen) p.open();
+        p.addSelection();
+      } else {
+        p.toggle();
+      }
+    });
+  });
+
   // --- SPA route awareness ---
   // Single-page apps change the URL without a full load. Detect it and re-key
   // the panel (saving the old note, restoring the new one) instead of reloading.

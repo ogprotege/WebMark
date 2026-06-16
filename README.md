@@ -285,6 +285,12 @@ anchoring matcher, all five exporters (including a CRC‑checked `.docx` ZIP), l
 backup/restore (merge & replace), and full wrap → remove → reload‑restore round‑trips
 (plus `clearAll`) in jsdom — 69 assertions.
 
+**Automation hook.** Page‑context scripts and browser automation can drive WebMark without
+the toolbar click by dispatching a DOM event:
+`document.dispatchEvent(new CustomEvent('webmark:control', { detail: 'open' }))`
+(`detail` = `open` | `close` | `toggle` | `capture`). Handy for end‑to‑end testing and
+integrations.
+
 ---
 
 ## Known limitations (MVP)
