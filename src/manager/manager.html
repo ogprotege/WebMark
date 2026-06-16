@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>WebMark — All notes</title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: #f1f5f9; color: #0f172a;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    header {
+      background: #1d4ed8; color: #fff; padding: 18px 24px;
+      display: flex; align-items: center; gap: 12px;
+    }
+    header h1 { font-size: 18px; margin: 0; font-weight: 700; }
+    header .sub { color: #bfdbfe; font-size: 13px; }
+    .container { max-width: 880px; margin: 0 auto; padding: 24px 16px 60px; }
+    .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 18px; margin-bottom: 14px; }
+    .settings { display: grid; gap: 14px; }
+    .settings .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .settings label { font-size: 14px; }
+    .settings .hint { color: #64748b; font-size: 12px; }
+    select, input[type="text"] { padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; }
+    .toolbar { display: flex; align-items: center; gap: 10px; margin: 18px 0 12px; }
+    .toolbar h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .04em; color: #475569; margin: 0; }
+    .search { flex: 1; }
+    .note-card { display: flex; flex-direction: column; gap: 8px; }
+    .note-card .top { display: flex; align-items: baseline; gap: 8px; }
+    .note-card .title { font-weight: 600; font-size: 15px; color: #0f172a; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .note-card .meta { color: #94a3b8; font-size: 12px; white-space: nowrap; }
+    .note-card .host { color: #1d4ed8; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .note-card .snippet { color: #475569; font-size: 13px; white-space: pre-wrap;
+      display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+    .pill { background: #eef2ff; color: #4338ca; border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 600; }
+    .actions { display: flex; gap: 8px; }
+    .btn { border: 1px solid #e2e8f0; background: #fff; border-radius: 8px; padding: 6px 12px; font-size: 13px; cursor: pointer; color: #334155; }
+    .btn:hover { background: #f8fafc; }
+    .btn.primary { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
+    .btn.danger:hover { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+    .empty { text-align: center; color: #94a3b8; padding: 50px 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>WebMark</h1>
+    <span class="sub">your notes &amp; highlights, all in one place</span>
+  </header>
+  <div class="container">
+    <div class="card settings">
+      <div class="row">
+        <input type="checkbox" id="autoOpenPdf" />
+        <label for="autoOpenPdf">Automatically open PDFs in the WebMark reader</label>
+      </div>
+      <div class="row">
+        <label for="defaultColor">Default highlight colour</label>
+        <select id="defaultColor"></select>
+        <span class="hint">For local <code>file://</code> PDFs, also enable “Allow access to file URLs” on chrome://extensions.</span>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <h2>Saved notes</h2>
+      <input type="text" id="search" class="search" placeholder="Search notes…" />
+    </div>
+    <div id="list"></div>
+  </div>
+
+  <script src="../core/util.js"></script>
+  <script src="../core/storage.js"></script>
+  <script src="../core/highlighter.js"></script>
+  <script src="manager.js"></script>
+</body>
+</html>

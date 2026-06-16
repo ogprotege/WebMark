@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WebMark PDF Reader</title>
+  <link rel="stylesheet" href="viewer.css" />
+</head>
+<body>
+  <div class="topbar" data-webmark-ui="topbar">
+    <span class="logo">WebMark</span>
+    <span class="filename" id="filename">PDF reader</span>
+    <span class="grow"></span>
+    <div class="group">
+      <button id="zoomOut" title="Zoom out">−</button>
+      <span id="zoomLevel">100%</span>
+      <button id="zoomIn" title="Zoom in">+</button>
+    </div>
+    <span class="pageinfo" id="pageinfo"></span>
+    <a id="openOriginal" class="linkbtn" title="Open the original PDF">Original</a>
+    <button id="toggleNotes" class="primary" title="Toggle notes (Alt+M)">Notes</button>
+  </div>
+
+  <div id="status" class="status"></div>
+  <div id="pages" class="pages" data-webmark-content></div>
+
+  <!-- core modules (classic scripts share a global namespace) -->
+  <script src="../core/util.js"></script>
+  <script src="../core/markdown.js"></script>
+  <script src="../core/anchor.js"></script>
+  <script src="../core/storage.js"></script>
+  <script src="../core/highlighter.js"></script>
+  <script src="../core/panel.js"></script>
+  <script src="viewer.js"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "webmark",
+  "version": "0.1.0",
+  "description": "A Chrome extension that gives you a Markdown notes column beside any web page or PDF. Highlight passages and they become blockquotes you can annotate.",
+  "private": true,
+  "scripts": {
+    "test": "node tools/test.mjs && node tools/test-dom.mjs",
+    "icons": "python3 tools/make_icons.py"
+  },
+  "devDependencies": {
+    "jsdom": "^24.0.0"
+  },
+  "license": "MIT"
+}
