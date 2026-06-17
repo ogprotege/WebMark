@@ -304,6 +304,9 @@ integrations.
   routing schemes may still need a manual refresh.
 - **Scanned / image‑only PDFs** have no selectable text, so they can't be highlighted (you
   can still take notes).
+- **Page reflow** works on the vast majority of sites (the panel reserves margin space with
+  `!important`, which even beats CSS resets); a few sites with unusual full‑viewport or
+  fixed‑position layouts may still draw some content under the panel.
 - **PDF export** uses the browser print dialog (choose "Save as PDF"); it isn't a silent
   download like the other formats.
 - Highlight restoration matches on text; if a page's text changes substantially, a

@@ -502,15 +502,25 @@
     }
 
     _applyShift() {
+      const el = this.shiftTarget;
       if (this._prevMargin === undefined) {
-        this._prevMargin = this.shiftTarget.style.marginRight || "";
+        // remember the page's own margin-right so we can restore it on close
+        this._prevMargin = el.style.getPropertyValue("margin-right");
+        this._prevMarginPriority = el.style.getPropertyPriority("margin-right");
       }
-      this.shiftTarget.style.marginRight = this.width + "px";
+      // Use !important so it wins even when the site resets margins with
+      // `html { margin: 0 !important }` (e.g. vatican.va) — inline !important
+      // beats author !important in the cascade.
+      el.style.setProperty("margin-right", this.width + "px", "important");
     }
 
     _removeShift() {
-      if (this._prevMargin !== undefined) {
-        this.shiftTarget.style.marginRight = this._prevMargin;
+      if (this._prevMargin === undefined) return;
+      const el = this.shiftTarget;
+      if (this._prevMargin) {
+        el.style.setProperty("margin-right", this._prevMargin, this._prevMarginPriority || "");
+      } else {
+        el.style.removeProperty("margin-right");
       }
     }
 
@@ -521,7 +531,7 @@
         const w = Math.min(720, Math.max(280, startW + (startX - e.clientX)));
         this.width = w;
         this.wrap.style.width = w + "px";
-        if (this.isOpen) this.shiftTarget.style.marginRight = w + "px";
+        if (this.isOpen) this.shiftTarget.style.setProperty("margin-right", w + "px", "important");
       };
       const onUp = () => {
         if (!dragging) return;
