@@ -152,7 +152,16 @@
       const missing = [];
       for (const hl of highlights) {
         if (this.has(hl.id)) continue;
-        const range = W.Anchor.find(hl.anchor, this.root);
+        let range = W.Anchor.find(hl.anchor, this.root);
+        // Resilience: if the detailed anchor can't be located (or was corrupted),
+        // fall back to the clean stored quote with the anchor's context hints.
+        if ((!range || range.collapsed) && hl.quote) {
+          const a = hl.anchor || {};
+          range = W.Anchor.find(
+            { quote: hl.quote, prefix: a.prefix || "", suffix: a.suffix || "", position: a.position || 0 },
+            this.root
+          );
+        }
         if (range && !range.collapsed) {
           this.wrap(range, { id: hl.id, color: hl.color });
         } else {

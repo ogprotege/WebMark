@@ -63,7 +63,10 @@
   }
 
   function todayIso() {
-    return new Date().toISOString().slice(0, 10);
+    // Local date (not UTC) so export filenames match the dates shown in the UI.
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, "0");
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
   }
 
   W.util = { keyForUrl, debounce, escapeHtml, normalizeWs, uid, todayIso, TRACKING_PARAMS };

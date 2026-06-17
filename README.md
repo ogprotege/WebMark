@@ -25,7 +25,7 @@ note exports to Markdown, plain text, HTML, Word, and PDF.
 ![HTML5](https://img.shields.io/badge/HTML5-_-e34f26?style=flat&logo=html5&logoColor=white)
 ![CSS3](https://img.shields.io/badge/CSS3-_-1572b6?style=flat&logo=css3&logoColor=white)
 ![Dependencies](https://img.shields.io/badge/dependencies-zero-22c55e?style=flat)
-![Tests](https://img.shields.io/badge/tests-69_passing-3fb950?style=flat)
+![Tests](https://img.shields.io/badge/tests-78_passing-3fb950?style=flat)
 
 </div>
 
@@ -208,7 +208,9 @@ Open **All notes** from the panel footer (or the extension's *Options* entry on
 
 - **Where it lives** — everything is stored with Chrome's `storage.local` API, on your
   computer, in your browser profile. **No server, no account, no telemetry.** WebMark makes
-  no network requests of its own.
+  no network requests of its own. (It uses the `webRequest` permission only to read the
+  `Content-Type` of pages *you* open, locally, so it can recognise PDFs — nothing is sent
+  anywhere.)
 - **Keys** — each page's note is saved under a normalised URL (origin + path, with tracking
   params and `#fragments` stripped), so revisiting the same article brings back the same
   note. PDF notes are keyed to the PDF's URL.
@@ -283,7 +285,7 @@ npm run icons      # regenerate PNG icons (pure-Python, no deps)
 `npm test` covers URL keying, the Markdown renderer (including link/HTML sanitising), the
 anchoring matcher, all five exporters (including a CRC‑checked `.docx` ZIP), local
 backup/restore (merge & replace), and full wrap → remove → reload‑restore round‑trips
-(plus `clearAll`) in jsdom — 69 assertions.
+(plus `clearAll`) in jsdom — 78 assertions.
 
 **Automation hook.** Page‑context scripts and browser automation can drive WebMark without
 the toolbar click by dispatching a DOM event:
@@ -295,8 +297,9 @@ integrations.
 
 ## Known limitations (MVP)
 
-- **PDFs with no `.pdf` extension** aren't auto‑detected — use the right‑click menu to open
-  them in the reader.
+- **PDFs with no `.pdf` extension** (e.g. `arxiv.org/pdf/…`) are auto‑detected over http/https
+  by their `Content-Type`; local `file://` PDFs still rely on the `.pdf` extension (use the
+  right‑click menu otherwise).
 - **Single‑page apps** — handled by re‑keying the panel on in‑app navigation; very unusual
   routing schemes may still need a manual refresh.
 - **Scanned / image‑only PDFs** have no selectable text, so they can't be highlighted (you

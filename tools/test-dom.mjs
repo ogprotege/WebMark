@@ -155,6 +155,41 @@ setBody(`<p id="p1">The quick brown fox jumps.</p>
   eq(doc.getElementById("cp2").textContent, "alpha beta gamma delta", "text intact after clearAll");
 }
 
+/* ---- 4c. element-boundary selection (selectNodeContents) — regression ----
+   Previously, selecting to the end of an element made the anchor swallow the
+   entire rest of the document (QA Steps 3 & 9). The quote must be just the
+   element's text, and must re-find correctly. */
+{
+  setBody(`<div><p>Intro before.</p><p id="t">The quick brown fox jumps over.</p><p>Tail after here.</p></div>`);
+  const p = doc.getElementById("t");
+  const range = doc.createRange();
+  range.selectNodeContents(p); // both endpoints are ELEMENT boundaries
+  const anchor = W.Anchor.fromRange(range, doc.body);
+  eq(anchor.quote, "The quick brown fox jumps over.", "element-boundary quote is just the element (not the rest of the doc)");
+  ok(anchor.quote.length < 60, "element-boundary quote is not the whole document");
+  ok(anchor.prefix.endsWith("Intro before."), "element-boundary prefix correct");
+  ok(anchor.suffix.startsWith("Tail after"), "element-boundary suffix is populated (was empty before fix)");
+  const found = W.Anchor.find(anchor, doc.body);
+  ok(found && found.toString() === "The quick brown fox jumps over.", "element-boundary anchor re-finds after reload");
+}
+
+/* ---- 4d. restore falls back to hl.quote when the anchor is corrupted ----
+   Mirrors the real-world bug: anchor.quote got polluted with the whole page,
+   but the clean hl.quote is correct, so restore should still succeed. */
+{
+  setBody(`<article><p>Intro.</p><p>The exact passage to recover.</p><p>End.</p></article>`);
+  const hl = new W.Highlighter(doc.body, {});
+  const missing = hl.restore([{
+    id: "fb1",
+    color: "yellow",
+    quote: "The exact passage to recover.",
+    anchor: { quote: "THIS WHOLE GIANT STRING IS NOT ON THE PAGE AT ALL " .repeat(20) },
+  }]);
+  eq(missing, [], "restore recovered via the clean quote fallback");
+  const mark = doc.querySelector('mark[data-webmark-id="fb1"]');
+  ok(mark && mark.textContent === "The exact passage to recover.", "fallback wrapped the correct text");
+}
+
 /* ---- 5. anchor reports missing text gracefully ---- */
 {
   setBody(`<p>nothing relevant here</p>`);

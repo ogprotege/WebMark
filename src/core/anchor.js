@@ -44,14 +44,39 @@
       for (const e of index.map) {
         if (e.node === container) return e.start + Math.min(offset, e.len);
       }
+      // not indexed; fall through to positional resolution
     }
-    // Element boundary: find the first indexed text node at/after the boundary.
+
     const ref = container.childNodes ? container.childNodes[offset] : null;
-    for (const e of index.map) {
-      if (!ref) break;
-      if (e.node === ref || ref.contains(e.node)) return e.start;
-      const pos = ref.compareDocumentPosition(e.node);
-      if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return e.start;
+    if (ref) {
+      // Boundary sits immediately before `ref`: use the first indexed text
+      // node that IS `ref`, is inside `ref`, or follows it in document order.
+      for (const e of index.map) {
+        if (e.node === ref || ref.contains(e.node)) return e.start;
+        if (ref.compareDocumentPosition(e.node) & Node.DOCUMENT_POSITION_FOLLOWING) {
+          return e.start;
+        }
+      }
+      return index.full.length;
+    }
+
+    // Boundary is at the END of `container`'s children (offset === childNodes.length).
+    // Use the end of the LAST indexed text node WITHIN `container`. (Previously
+    // this returned full.length, which made selecting to the end of an element —
+    // e.g. selectNodeContents() — swallow the entire rest of the document.)
+    if (container.nodeType === Node.ELEMENT_NODE) {
+      for (let i = index.map.length - 1; i >= 0; i--) {
+        const e = index.map[i];
+        if (container.contains(e.node)) return e.start + e.len;
+      }
+    }
+    // No text inside `container`: use the first text node after it, else the end.
+    if (container.compareDocumentPosition) {
+      for (const e of index.map) {
+        if (container.compareDocumentPosition(e.node) & Node.DOCUMENT_POSITION_FOLLOWING) {
+          return e.start;
+        }
+      }
     }
     return index.full.length;
   }

@@ -104,6 +104,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 });
 
 // Auto-open PDFs in the reader (best-effort, gated by a setting).
+// Fast path by URL extension — also covers file:// PDFs (which webRequest can't see).
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
   if (!changeInfo.url) return;
   if (!isPdfUrl(changeInfo.url) || isViewerUrl(changeInfo.url)) return;
@@ -111,6 +112,28 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
   if (!settings.autoOpenPdf) return;
   chrome.tabs.update(tabId, { url: viewerUrlFor(changeInfo.url) }).catch(() => {});
 });
+
+// Robust path by response Content-Type — catches PDFs served without a .pdf
+// extension (e.g. https://arxiv.org/pdf/1706.03762). Observed locally only;
+// nothing is sent anywhere.
+if (chrome.webRequest && chrome.webRequest.onHeadersReceived) {
+  chrome.webRequest.onHeadersReceived.addListener(
+    (details) => {
+      if (details.type !== "main_frame" || isViewerUrl(details.url)) return;
+      const ct = (details.responseHeaders || []).find(
+        (h) => h.name.toLowerCase() === "content-type"
+      );
+      if (!ct || !/application\/pdf/i.test(ct.value || "")) return;
+      getSettings().then((settings) => {
+        if (settings.autoOpenPdf) {
+          chrome.tabs.update(details.tabId, { url: viewerUrlFor(details.url) }).catch(() => {});
+        }
+      });
+    },
+    { urls: ["http://*/*", "https://*/*"], types: ["main_frame"] },
+    ["responseHeaders"]
+  );
+}
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg && msg.type === "open-manager") {

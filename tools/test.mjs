@@ -35,6 +35,13 @@ eq(W.util.keyForUrl("chrome-extension://abc/src/pdf/viewer.html?file=" +
      encodeURIComponent("https://x.com/doc.pdf")),
    "https://x.com/doc.pdf", "keyForUrl resolves viewer file param to underlying url");
 eq(W.util.normalizeWs("  a\n  b   c "), "a b c", "normalizeWs collapses whitespace");
+{
+  const iso = W.util.todayIso();
+  ok(/^\d{4}-\d{2}-\d{2}$/.test(iso), "todayIso is YYYY-MM-DD");
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  eq(iso, `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`, "todayIso uses local date (no UTC drift)");
+}
 
 /* ---- markdown.render ---- */
 const md = W.markdown.render;
