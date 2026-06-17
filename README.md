@@ -47,7 +47,7 @@ note exports to Markdown, plain text, HTML, Word, and PDF.
 
 - [Why WebMark](#why-webmark)
 - [Feature overview](#feature-overview)
-- [Install locally](#install-locally-developer-mode)
+- [Install](#install)
 - [The core workflow](#the-core-workflow)
 - [Use cases](#use-cases)
 - [Exporting your notes](#exporting-your-notes)
@@ -107,17 +107,62 @@ place on the page. WebMark collapses that into one uninterrupted flow:
 
 ---
 
-## Install locally (developer mode)
+## Install
 
-1. Open Chrome and go to `chrome://extensions`.
-2. Turn on **Developer mode** (top‑right).
-3. Click **Load unpacked** and select this folder (the one containing `manifest.json`).
-4. Open any web page and click the **WebMark** icon (or press `Alt+M`).
-5. *(Optional, for local PDFs)* click **Details** on the WebMark card and enable
-   **Allow access to file URLs**.
+WebMark isn't on the Chrome Web Store yet, so for now you install it as an **unpacked
+extension**. It takes about two minutes, needs no technical skills, and works on any
+Chromium browser — Google Chrome, Microsoft Edge, Brave, Arc, Opera, etc. There's **no
+build step**: it's plain JS/HTML/CSS plus a bundled copy of PDF.js.
 
-No build step is required — the extension is plain JS/HTML/CSS plus a vendored copy of
-PDF.js in `vendor/pdfjs/`.
+### Step 1 — Download WebMark
+
+**Easiest — download the ZIP (no tools needed):**
+1. Go to **https://github.com/ogprotege/WebMark**.
+2. Click the green **`< > Code`** button → **Download ZIP**.
+3. Open your **Downloads** folder and **double‑click `WebMark-main.zip`** to unzip it. You'll
+   get a folder named **`WebMark-main`** — that's the extension.
+4. Move that folder somewhere permanent (e.g. *Documents*). ⚠️ If you delete or move it later,
+   the extension stops working, so pick a spot you'll keep.
+
+**Or, if you use git:**
+```bash
+git clone https://github.com/ogprotege/WebMark.git
+```
+
+### Step 2 — Load it into your browser
+1. Open Chrome and type **`chrome://extensions`** in the address bar, then press Enter.
+2. Turn on **Developer mode** — the toggle in the **top‑right** corner.
+3. Click **Load unpacked** (top‑left).
+4. Select the **`WebMark-main`** folder from Step 1 — the folder that *directly contains*
+   `manifest.json` — and click **Select / Open**.
+5. A **WebMark** card appears in the list. That's it — you're installed. ✅
+
+*(Edge: the steps are identical at `edge://extensions`. Brave: `brave://extensions`.)*
+
+### Step 3 — Pin the icon (recommended)
+1. Click the **puzzle‑piece 🧩** icon at the top‑right of the toolbar.
+2. Click the **pin** 📌 next to **WebMark** so its icon stays visible on your toolbar.
+
+### Step 4 — Start using it
+- Open any article and click the **WebMark** icon (or press **Alt+M**, **⌥M** on Mac) to open
+  the notes column.
+- **Select text → click _Highlight_** → it's saved into your notes as a quote you can write
+  under. Everything autosaves locally.
+- **PDFs** open in WebMark's reader automatically. For **local PDF files** (`file://…`), go to
+  `chrome://extensions`, click **Details** on WebMark, and enable **Allow access to file URLs**.
+
+### Keeping it updated
+- **ZIP:** download a fresh ZIP, replace the old folder with the new one, then click the
+  **↻ reload** icon on the WebMark card in `chrome://extensions`.
+- **git:** run `git pull` in the folder, then click **↻ reload** on the card.
+
+### Uninstalling
+`chrome://extensions` → **Remove** on the WebMark card. Your notes are stored in that browser
+profile, so removing the extension deletes them — **export a backup first** from
+**All notes → Export all notes** if you want to keep them.
+
+> 🚀 **Coming soon:** a Chrome Web Store listing so anyone can install with one click, no
+> Developer mode required.
 
 ---
 
