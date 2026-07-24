@@ -379,6 +379,12 @@ otherwise it's listed as "not on page".
 
 ---
 
+## Funding
+
+<a href="https://www.buymeacoffee.com/thebiscuit" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" style="height: 60px !important;width: 217px !important;" ></a>
+
+---
+
 <div align="center">
 
 **MIT** © William Sherman · original concept by [Ross Warren](https://github.com/rosswarren99/markup)
