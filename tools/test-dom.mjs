@@ -261,6 +261,7 @@ setBody(`<p id="p1">The quick brown fox jumps.</p>
   ok(panel.highlighter.has("private-hl"), "panel restored the stored highlight");
 
   const oldValue = data[storageKey];
+  panel._typing = true;
   delete data[storageKey];
   listeners.forEach((fn) => fn({ [storageKey]: { oldValue } }, "local"));
 
