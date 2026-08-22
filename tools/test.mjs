@@ -309,6 +309,26 @@ eq(X.crc32(new TextEncoder().encode("123456789")), 0xcbf43926, "crc32 matches th
   try { await W.Storage.importAll(importData, "unknown"); } catch { threw = true; }
   ok(threw, "importAll rejects unknown import modes");
 
+  const localUrl = "file:///home/reader/paper.pdf";
+  const localKey = W.util.keyForUrl(localUrl);
+  globalThis.chrome = makeFakeChrome();
+  const localResult = await W.Storage.importAll({
+    type: "webmark-backup",
+    schema: 1,
+    notes: {
+      ["wm:" + localKey]: {
+        key: localKey,
+        url: localUrl,
+        title: "Local paper",
+        note: "offline note",
+        highlights: [],
+        updatedAt: 1,
+      },
+    },
+  }, "merge").catch(() => null);
+  ok(localResult && localResult.added === 1,
+     "importAll accepts backups for supported local PDF URLs");
+
   globalThis.chrome = makeFakeChrome({
     "wm:settings": {
       autoOpenPdf: "yes",
