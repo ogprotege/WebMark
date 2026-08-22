@@ -359,5 +359,108 @@ setBody(`<p id="p1">The quick brown fox jumps.</p>
   delete globalThis.chrome;
 }
 
+/* ---- 8. host-page control events cannot mutate extension state ---- */
+{
+  setBody(`<article><p>Host-controlled text.</p></article>`);
+  const previousWindow = globalThis.window;
+  const previousLocation = globalThis.location;
+  const previousSetInterval = globalThis.setInterval;
+  globalThis.window = window;
+  globalThis.location = window.location;
+  globalThis.setInterval = () => 0;
+  globalThis.chrome = {
+    runtime: { onMessage: { addListener() {} } },
+    storage: {
+      local: {
+        get: async () => ({}),
+        set: async () => {},
+        remove: async () => {},
+      },
+      onChanged: { addListener() {} },
+    },
+  };
+  delete window.__webmarkContentLoaded;
+
+  vm.runInThisContext(
+    readFileSync(new URL("../src/content.js", import.meta.url), "utf8"),
+    { filename: "src/content.js" }
+  );
+  await Promise.resolve();
+  doc.dispatchEvent(new window.CustomEvent("webmark:control", { detail: "capture" }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  ok(!doc.querySelector('[data-webmark-ui="panel"]'),
+     "page-dispatched control events cannot create or drive the notes panel");
+
+  globalThis.setInterval = previousSetInterval;
+  if (previousWindow === undefined) delete globalThis.window;
+  else globalThis.window = previousWindow;
+  if (previousLocation === undefined) delete globalThis.location;
+  else globalThis.location = previousLocation;
+  delete globalThis.chrome;
+}
+
+/* ---- 9. cancelling destructive backup import performs no write ---- */
+{
+  const managerDom = new JSDOM(
+    readFileSync(new URL("../src/manager/manager.html", import.meta.url), "utf8")
+  );
+  const managerDocument = managerDom.window.document;
+  const importModes = [];
+  let confirmResult = false;
+  const managerContext = {
+    document: managerDocument,
+    WebMark: {
+      COLORS: [],
+      util: {
+        escapeHtml: (value) => String(value),
+        todayIso: () => "2026-08-22",
+      },
+      Export: {
+        FORMATS: [],
+        downloadBlob() {},
+        exportAs() {},
+      },
+      Storage: {
+        getSettings: async () => ({ autoOpenPdf: true, defaultColor: "yellow" }),
+        setSettings: async () => {},
+        listNotes: async () => [],
+        exportAll: async () => ({}),
+        importAll: async (_data, mode) => {
+          importModes.push(mode);
+          return { total: 0, added: 0, updated: 0, skipped: 0 };
+        },
+      },
+    },
+    chrome: {
+      runtime: { getURL: (path) => "chrome-extension://test/" + path },
+      tabs: { create() {} },
+    },
+    Blob,
+    confirm: () => confirmResult,
+    alert() {},
+    console,
+  };
+  vm.runInNewContext(
+    readFileSync(new URL("../src/manager/manager.js", import.meta.url), "utf8"),
+    managerContext,
+    { filename: "src/manager/manager.js" }
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const input = managerDocument.getElementById("importFile");
+  Object.defineProperty(input, "files", {
+    configurable: true,
+    value: [{ text: async () => JSON.stringify({ type: "webmark-backup", notes: {} }) }],
+  });
+  managerDocument.getElementById("importMode").value = "replace";
+  await input.onchange();
+  eq(importModes, [], "cancelling replacement does not import or delete notes");
+
+  confirmResult = true;
+  await input.onchange();
+  eq(importModes, ["replace"], "confirmed replacement uses replace mode");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

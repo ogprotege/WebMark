@@ -425,30 +425,23 @@ if (isSupportedPageUrl) {
   ok(!manifest.web_accessible_resources,
      "internal extension pages are not exposed to arbitrary websites");
 
-  for (const path of ["../src/content.js", "../src/pdf/viewer.js"]) {
-    const source = readFileSync(new URL(path, import.meta.url), "utf8");
-    ok(!source.includes("webmark:control"),
-       `${path.split("/").pop()} does not trust page-dispatched control events`);
-  }
   const viewerSource = readFileSync(
     new URL("../src/pdf/viewer.js", import.meta.url),
     "utf8"
   );
-  ok(viewerSource.includes("isSupportedPageUrl(fileUrl)"),
+  const status = { innerHTML: "", style: {} };
+  vm.runInNewContext(viewerSource, {
+    WebMark: { util: { isSupportedPageUrl: () => false } },
+    URLSearchParams,
+    location: { search: "?file=javascript%3Aalert(1)" },
+    document: {
+      getElementById(id) {
+        return id === "status" ? status : {};
+      },
+    },
+  });
+  eq(status.innerHTML, "Unsupported PDF URL.",
      "PDF viewer rejects unsupported source URL schemes");
-
-  const managerHtml = readFileSync(
-    new URL("../src/manager/manager.html", import.meta.url),
-    "utf8"
-  );
-  const managerSource = readFileSync(
-    new URL("../src/manager/manager.js", import.meta.url),
-    "utf8"
-  );
-  ok(managerHtml.includes('id="importMode"'),
-     "backup restore exposes an explicit import mode");
-  ok(!managerSource.includes("Cancel = replace"),
-     "cancelling an import cannot trigger destructive replacement");
 }
 
 /* ---- PDF render coordination ---- */
