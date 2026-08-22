@@ -7,6 +7,15 @@
     "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
     "gclid", "fbclid", "mc_cid", "mc_eid", "ref", "ref_src",
   ];
+  const PAGE_PROTOCOLS = new Set(["http:", "https:", "file:"]);
+
+  function isSupportedPageUrl(rawUrl) {
+    try {
+      return PAGE_PROTOCOLS.has(new URL(String(rawUrl)).protocol);
+    } catch {
+      return false;
+    }
+  }
 
   // Build a stable storage key for a page so notes re-attach on revisit.
   // Drops the hash and common tracking params; keeps origin + path + meaningful query.
@@ -69,5 +78,14 @@
     return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
   }
 
-  W.util = { keyForUrl, debounce, escapeHtml, normalizeWs, uid, todayIso, TRACKING_PARAMS };
+  W.util = {
+    keyForUrl,
+    isSupportedPageUrl,
+    debounce,
+    escapeHtml,
+    normalizeWs,
+    uid,
+    todayIso,
+    TRACKING_PARAMS,
+  };
 })();
