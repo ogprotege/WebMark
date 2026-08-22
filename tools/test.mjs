@@ -369,6 +369,7 @@ eq(X.crc32(new TextEncoder().encode("123456789")), 0xcbf43926, "crc32 matches th
   const store = new W.Storage.PageStore("https://race.example/");
   store.queue({ note: "first", highlights: [] });
   const flushing = store.flushNow();
+  await Promise.resolve();
   store.queue({ note: "second", highlights: [] });
   releaseFirst();
   await flushing;
@@ -411,6 +412,7 @@ eq(X.crc32(new TextEncoder().encode("123456789")), 0xcbf43926, "crc32 matches th
   const store = new W.Storage.PageStore("https://ordered.example/");
   store.queue({ note: "before-delete", highlights: [] });
   const firstWrite = store.flushNow();
+  await Promise.resolve();
   const removing = store.remove();
   store.queue({ note: "after-delete", highlights: [] });
   releaseFirst();
