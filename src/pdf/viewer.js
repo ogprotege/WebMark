@@ -29,8 +29,8 @@
     statusEl.style.display = html ? "" : "none";
   }
 
-  if (!fileUrl) {
-    setStatus("No PDF specified.");
+  if (!fileUrl || !W.util.isSupportedPageUrl(fileUrl)) {
+    setStatus(fileUrl ? "Unsupported PDF URL." : "No PDF specified.");
     return;
   }
   document.getElementById("openOriginal").href = fileUrl;
