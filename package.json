@@ -8,7 +8,7 @@
     "icons": "python3 tools/make_icons.py"
   },
   "devDependencies": {
-    "jsdom": "^24.0.0"
+    "jsdom": "^29.1.1"
   },
   "license": "MIT"
 }
