@@ -27,6 +27,17 @@ try {
   // The availability assertion below reports a useful red test before the helper exists.
 }
 
+let PanelMessageRouter = null;
+try {
+  vm.runInThisContext(
+    readFileSync(new URL("../src/pdf/panel-messages.js", import.meta.url), "utf8"),
+    { filename: "src/pdf/panel-messages.js" }
+  );
+  PanelMessageRouter = W.PanelMessageRouter;
+} catch {
+  // The availability assertion below reports a useful red test before the helper exists.
+}
+
 let pass = 0, fail = 0;
 function eq(actual, expected, msg) {
   const a = JSON.stringify(actual), e = JSON.stringify(expected);
@@ -417,6 +428,33 @@ if (RenderCoordinator) {
   releaseStale();
   eq(await stale, false, "invalidated renders cannot mutate replacement state");
   eq(await replacement, true, "replacement render becomes authoritative");
+}
+
+/* ---- PDF panel message readiness ---- */
+ok(typeof PanelMessageRouter === "function",
+   "PDF panel messages have a readiness-aware router");
+if (PanelMessageRouter) {
+  let resolvePanel;
+  const ready = new Promise((resolve) => { resolvePanel = resolve; });
+  const calls = [];
+  const fakePanel = {
+    isOpen: true,
+    toggle() { calls.push("toggle"); },
+    open() { this.isOpen = true; calls.push("open"); },
+    addSelection() { calls.push("capture"); },
+  };
+  const router = new PanelMessageRouter(ready);
+  const pending = router.dispatch({ type: "toggle" });
+  await Promise.resolve();
+  eq(calls, [], "messages wait while the PDF panel initializes");
+  resolvePanel(fakePanel);
+  eq(await pending, true, "queued panel messages report delivery");
+  eq(calls, ["toggle"], "queued toggle runs after panel initialization");
+
+  fakePanel.isOpen = false;
+  eq(await router.dispatch({ type: "capture" }), true, "capture message is delivered");
+  eq(calls.slice(-2), ["open", "capture"], "capture opens the panel before capturing");
+  eq(await router.dispatch({ type: "unknown" }), false, "unknown panel messages are ignored");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
