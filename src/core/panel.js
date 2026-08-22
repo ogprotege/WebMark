@@ -175,7 +175,13 @@
     // Switch the panel to a new page without a full reload (SPA navigation).
     async switchPage(newKey, url, title) {
       if (newKey === this.pageKey) return;
-      this.store.flushNow();
+      try {
+        await this.store.flushNow();
+      } catch {
+        // Keep the panel aligned with the live route even if storage is unavailable.
+      }
+      this._typing = false;
+      clearTimeout(this._typingTimer);
       this.highlighter.clearAll();
       this.pageKey = newKey;
       this.url = url || this.url;
