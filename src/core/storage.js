@@ -223,6 +223,7 @@
       this._save = W.util.debounce(() => this._flush(), 600);
       this._pending = null;
       this._flushing = null;
+      this._operations = Promise.resolve();
     }
 
     async load() {
@@ -247,6 +248,14 @@
       this._save();
     }
 
+    _enqueue(operation) {
+      const result = this._operations.then(operation);
+      // Keep later operations usable after a failed write while still returning
+      // the original rejection to the caller that initiated it.
+      this._operations = result.catch(() => {});
+      return result;
+    }
+
     async _flush() {
       if (this._flushing) return this._flushing;
       this._flushing = (async () => {
@@ -254,7 +263,7 @@
           const record = this._pending;
           this._pending = null;
           try {
-            await area().set({ [this.storageKey]: record });
+            await this._enqueue(() => area().set({ [this.storageKey]: record }));
           } catch (error) {
             if (!this._pending) this._pending = record;
             throw error;
@@ -274,15 +283,7 @@
 
     async remove() {
       this._pending = null;
-      if (this._flushing) {
-        try {
-          await this._flushing;
-        } catch {
-          // Removal remains authoritative even if a preceding write failed.
-        }
-      }
-      this._pending = null;
-      await area().remove(this.storageKey);
+      await this._enqueue(() => area().remove(this.storageKey));
     }
 
     // React to edits made in other tabs/windows on the same page.
