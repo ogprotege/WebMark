@@ -48,7 +48,7 @@
         clearTimeout(t);
         t = null;
       }
-      fn(...args);
+      return fn(...args);
     };
     return wrapped;
   }
