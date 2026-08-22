@@ -10,8 +10,9 @@ The environment update script runs `npm install` (only dev dependency is `jsdom`
 for tests). There is no bundler — the `src/` files load directly via the manifest.
 
 - **Verify core logic with the test suite:** `npm test` runs `tools/test.mjs`
-  (markdown / anchor / storage / export, 47 tests) and `tools/test-dom.mjs`
-  (jsdom: text-quote anchor round-trip + highlight wrap/remove/restore, 31 tests).
+  (markdown / anchor / storage / export / security / PDF helpers, 81 tests) and
+  `tools/test-dom.mjs` (jsdom: text-quote anchors, highlights, panel privacy,
+  SPA sync, and manager behavior, 45 tests).
   These execute the real `src/core/*.js` modules and are the reliable way to check
   the extension in the cloud.
 - **Loading the unpacked extension in the VM's automated Chrome is unreliable.**
