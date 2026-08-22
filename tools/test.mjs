@@ -16,6 +16,17 @@ for (const f of files) {
 }
 const W = globalThis.WebMark;
 
+let RenderCoordinator = null;
+try {
+  vm.runInThisContext(
+    readFileSync(new URL("../src/pdf/render-coordinator.js", import.meta.url), "utf8"),
+    { filename: "src/pdf/render-coordinator.js" }
+  );
+  RenderCoordinator = W.RenderCoordinator;
+} catch {
+  // The availability assertion below reports a useful red test before the helper exists.
+}
+
 let pass = 0, fail = 0;
 function eq(actual, expected, msg) {
   const a = JSON.stringify(actual), e = JSON.stringify(expected);
@@ -371,6 +382,41 @@ if (isSupportedPageUrl) {
      "backup restore exposes an explicit import mode");
   ok(!managerSource.includes("Cancel = replace"),
      "cancelling an import cannot trigger destructive replacement");
+}
+
+/* ---- PDF render coordination ---- */
+ok(typeof RenderCoordinator === "function",
+   "PDF rendering exposes a reusable in-flight coordinator");
+if (RenderCoordinator) {
+  const coordinator = new RenderCoordinator();
+  let releaseFirst;
+  let starts = 0;
+  const first = coordinator.run("page-1", async (isCurrent) => {
+    starts++;
+    await new Promise((resolve) => { releaseFirst = resolve; });
+    return isCurrent();
+  });
+  const joined = coordinator.run("page-1", async () => {
+    starts++;
+    return false;
+  });
+  ok(first === joined, "duplicate page renders join the in-flight promise");
+  await Promise.resolve();
+  eq(starts, 1, "only one render starts for a page");
+  releaseFirst();
+  eq(await first, true, "a current render remains authoritative");
+
+  let releaseStale;
+  const stale = coordinator.run("page-2", async (isCurrent) => {
+    await new Promise((resolve) => { releaseStale = resolve; });
+    return isCurrent();
+  });
+  await Promise.resolve();
+  coordinator.invalidate("page-2");
+  const replacement = coordinator.run("page-2", async (isCurrent) => isCurrent());
+  releaseStale();
+  eq(await stale, false, "invalidated renders cannot mutate replacement state");
+  eq(await replacement, true, "replacement render becomes authoritative");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

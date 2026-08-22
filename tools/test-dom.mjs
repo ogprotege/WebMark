@@ -274,5 +274,90 @@ setBody(`<p id="p1">The quick brown fox jumps.</p>
   delete globalThis.chrome;
 }
 
+/* ---- 7. SPA switches flush before loading and reset typing state ---- */
+{
+  setBody(`<main><p>SPA article body.</p></main>`);
+  const pageA = "https://spa.example/a";
+  const pageB = "https://spa.example/b";
+  const keyA = "wm:" + pageA;
+  const keyB = "wm:" + pageB;
+  let data = {
+    [keyB]: {
+      key: pageB,
+      url: pageB,
+      title: "B",
+      note: "page B",
+      highlights: [],
+      updatedAt: 1,
+    },
+  };
+  let releaseWrite;
+  let writes = 0;
+  const listeners = [];
+  globalThis.chrome = {
+    runtime: { sendMessage: async () => ({ ok: true }) },
+    storage: {
+      local: {
+        get: async (key) => {
+          if (key == null) return { ...data };
+          return key in data ? { [key]: data[key] } : {};
+        },
+        set: async (obj) => {
+          const snapshot = structuredClone(obj);
+          writes++;
+          if (writes === 1) {
+            await new Promise((resolve) => { releaseWrite = resolve; });
+          }
+          Object.assign(data, snapshot);
+        },
+        remove: async (key) => { delete data[key]; },
+      },
+      onChanged: {
+        addListener(fn) { listeners.push(fn); },
+      },
+    },
+  };
+
+  const panel = new W.Panel({
+    pageKey: pageA,
+    url: pageA,
+    title: "A",
+    contentRoot: doc.body,
+    shiftTarget: doc.documentElement,
+  });
+  await panel.init();
+  panel.textarea.value = "latest page A";
+  panel.record.note = panel.textarea.value;
+  panel._typing = true;
+  panel._persist();
+
+  const switching = panel.switchPage(pageB, pageB, "B");
+  await Promise.resolve();
+  eq(panel.pageKey, pageA, "switchPage waits for the old page write");
+  releaseWrite();
+  await switching;
+
+  eq(data[keyA].note, "latest page A", "switchPage persisted the latest old-page edit");
+  eq(panel.pageKey, pageB, "switchPage activates the destination after flushing");
+  ok(panel._typing === false, "switchPage clears typing state from the previous page");
+
+  const external = {
+    key: pageB,
+    url: pageB,
+    title: "B",
+    note: "newer page B",
+    highlights: [],
+    updatedAt: 2,
+  };
+  data[keyB] = external;
+  listeners.forEach((fn) => fn({ [keyB]: { newValue: external } }, "local"));
+  eq(panel.textarea.value, "newer page B",
+     "destination page receives cross-tab changes immediately");
+
+  panel.host.remove();
+  panel.selHost.remove();
+  delete globalThis.chrome;
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
