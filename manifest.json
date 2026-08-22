@@ -53,18 +53,5 @@
   "options_ui": {
     "page": "src/manager/manager.html",
     "open_in_tab": true
-  },
-  "web_accessible_resources": [
-    {
-      "resources": [
-        "src/pdf/viewer.html",
-        "src/pdf/viewer.js",
-        "src/pdf/viewer.css",
-        "src/manager/manager.html",
-        "vendor/pdfjs/*",
-        "src/core/*"
-      ],
-      "matches": ["<all_urls>"]
-    }
-  ]
+  }
 }
