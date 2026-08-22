@@ -448,6 +448,14 @@ if (RenderCoordinator) {
   releaseStale();
   eq(await stale, false, "invalidated renders cannot mutate replacement state");
   eq(await replacement, true, "replacement render becomes authoritative");
+
+  let invalidatedTaskStarted = false;
+  const invalidatedBeforeStart = coordinator.run("page-3", async () => {
+    invalidatedTaskStarted = true;
+  });
+  coordinator.invalidate("page-3");
+  await invalidatedBeforeStart;
+  ok(!invalidatedTaskStarted, "renders invalidated before startup do no work");
 }
 
 /* ---- PDF panel message readiness ---- */
