@@ -286,6 +286,18 @@ eq(X.crc32(new TextEncoder().encode("123456789")), 0xcbf43926, "crc32 matches th
   threw = false;
   try { await W.Storage.importAll(importData, "unknown"); } catch { threw = true; }
   ok(threw, "importAll rejects unknown import modes");
+
+  globalThis.chrome = makeFakeChrome({
+    "wm:settings": {
+      autoOpenPdf: "yes",
+      defaultColor: "not-a-colour",
+      panelWidth: "100vw",
+      fontScale: null,
+    },
+  });
+  const safeSettings = await W.Storage.getSettings();
+  eq(safeSettings, W.Storage.DEFAULT_SETTINGS,
+     "getSettings discards malformed persisted values");
   delete globalThis.chrome;
 }
 
