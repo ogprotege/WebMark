@@ -379,6 +379,52 @@ eq(X.crc32(new TextEncoder().encode("123456789")), 0xcbf43926, "crc32 matches th
   delete globalThis.chrome;
 }
 
+/* ---- PageStore delete/write ordering ---- */
+{
+  let data = {};
+  let releaseFirst;
+  let writes = 0;
+  const operations = [];
+  globalThis.chrome = {
+    storage: {
+      local: {
+        get: async (key) => (key in data ? { [key]: data[key] } : {}),
+        set: async (obj) => {
+          const snapshot = structuredClone(obj);
+          const note = Object.values(snapshot)[0].note;
+          operations.push("set:" + note);
+          writes++;
+          if (writes === 1) {
+            await new Promise((resolve) => { releaseFirst = resolve; });
+          }
+          Object.assign(data, snapshot);
+        },
+        remove: async (key) => {
+          operations.push("remove");
+          delete data[key];
+        },
+      },
+      onChanged: { addListener() {} },
+    },
+  };
+
+  const store = new W.Storage.PageStore("https://ordered.example/");
+  store.queue({ note: "before-delete", highlights: [] });
+  const firstWrite = store.flushNow();
+  const removing = store.remove();
+  store.queue({ note: "after-delete", highlights: [] });
+  releaseFirst();
+  await firstWrite;
+  await removing;
+  await store.flushNow();
+
+  eq(data["wm:https://ordered.example/"] && data["wm:https://ordered.example/"].note, "after-delete",
+     "edits made after a deletion request are preserved");
+  eq(operations, ["set:before-delete", "remove", "set:after-delete"],
+     "storage writes and deletion execute in user-action order");
+  delete globalThis.chrome;
+}
+
 /* ---- URL and manifest security boundaries ---- */
 const isSupportedPageUrl = W.util.isSupportedPageUrl;
 ok(typeof isSupportedPageUrl === "function", "URL security policy is available");
