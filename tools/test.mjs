@@ -2,6 +2,7 @@
 // Loads the core modules into this realm and exercises the DOM-free helpers.
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import { createFakeChrome } from "./fake-chrome.mjs";
 
 const files = [
   "src/core/util.js",
@@ -157,29 +158,8 @@ eq(X.crc32(new TextEncoder().encode("123456789")), 0xcbf43926, "crc32 matches th
 
 /* ---- storage Backup & Restore (with a fake chrome.storage.local) ---- */
 {
-  const makeFakeChrome = (initial = {}) => {
-    let data = { ...initial };
-    return {
-      storage: {
-        local: {
-          get: async (k) => {
-            if (k == null) return { ...data };
-            if (typeof k === "string") return k in data ? { [k]: data[k] } : {};
-            const out = {};
-            (Array.isArray(k) ? k : Object.keys(k)).forEach((x) => { if (x in data) out[x] = data[x]; });
-            return out;
-          },
-          set: async (obj) => { Object.assign(data, obj); },
-          remove: async (k) => { (Array.isArray(k) ? k : [k]).forEach((x) => delete data[x]); },
-        },
-        onChanged: { addListener() {} },
-      },
-      _dump: () => data,
-    };
-  };
-
   // export gathers notes + settings, ignores unrelated keys
-  globalThis.chrome = makeFakeChrome({
+  globalThis.chrome = createFakeChrome({
     "wm:https://a.com/x": { key: "https://a.com/x", note: "alpha", updatedAt: 100 },
     "wm:https://b.com/y": { key: "https://b.com/y", note: "beta", updatedAt: 200 },
     "wm:settings": { defaultColor: "green" },
@@ -191,7 +171,7 @@ eq(X.crc32(new TextEncoder().encode("123456789")), 0xcbf43926, "crc32 matches th
   ok(!("unrelated" in backup.notes), "exportAll ignores non-WebMark keys");
 
   // import merge keeps the newer record, adds new ones, skips older
-  globalThis.chrome = makeFakeChrome({
+  globalThis.chrome = createFakeChrome({
     "wm:https://a.com/x": { key: "https://a.com/x", note: "OLD-local", updatedAt: 50 },
   });
   const importData = {
@@ -206,7 +186,7 @@ eq(X.crc32(new TextEncoder().encode("123456789")), 0xcbf43926, "crc32 matches th
   eq(chrome._dump()["wm:https://a.com/x"].note, "NEW-backup", "merge keeps the newer note");
 
   // merge skips when local is newer
-  globalThis.chrome = makeFakeChrome({
+  globalThis.chrome = createFakeChrome({
     "wm:https://a.com/x": { key: "https://a.com/x", note: "LOCAL-newer", updatedAt: 999 },
   });
   const res2 = await W.Storage.importAll(importData, "merge");
@@ -214,7 +194,7 @@ eq(X.crc32(new TextEncoder().encode("123456789")), 0xcbf43926, "crc32 matches th
   eq(chrome._dump()["wm:https://a.com/x"].note, "LOCAL-newer", "merge leaves newer local note intact");
 
   // replace mode overwrites regardless of timestamps
-  globalThis.chrome = makeFakeChrome({
+  globalThis.chrome = createFakeChrome({
     "wm:https://a.com/x": { key: "https://a.com/x", note: "LOCAL-newer", updatedAt: 999 },
   });
   await W.Storage.importAll(importData, "replace");
@@ -226,7 +206,7 @@ eq(X.crc32(new TextEncoder().encode("123456789")), 0xcbf43926, "crc32 matches th
   ok(threw, "importAll rejects files that aren't WebMark backups");
 
   // replace removes local notes that are absent from the backup
-  globalThis.chrome = makeFakeChrome({
+  globalThis.chrome = createFakeChrome({
     "wm:https://a.com/x": { key: "https://a.com/x", note: "local-a", highlights: [], updatedAt: 1 },
     "wm:https://b.com/y": { key: "https://b.com/y", note: "local-b", highlights: [], updatedAt: 1 },
   });
@@ -293,7 +273,7 @@ eq(X.crc32(new TextEncoder().encode("123456789")), 0xcbf43926, "crc32 matches th
 
   const localUrl = "file:///home/reader/paper.pdf";
   const localKey = W.util.keyForUrl(localUrl);
-  globalThis.chrome = makeFakeChrome();
+  globalThis.chrome = createFakeChrome();
   const localResult = await W.Storage.importAll({
     type: "webmark-backup",
     schema: 1,
@@ -311,7 +291,7 @@ eq(X.crc32(new TextEncoder().encode("123456789")), 0xcbf43926, "crc32 matches th
   ok(localResult && localResult.added === 1,
      "importAll accepts backups for supported local PDF URLs");
 
-  globalThis.chrome = makeFakeChrome({
+  globalThis.chrome = createFakeChrome({
     "wm:settings": {
       autoOpenPdf: "yes",
       defaultColor: "not-a-colour",
@@ -327,26 +307,14 @@ eq(X.crc32(new TextEncoder().encode("123456789")), 0xcbf43926, "crc32 matches th
 
 /* ---- PageStore write serialization ---- */
 {
-  let data = {};
   let releaseFirst;
-  let writes = 0;
-  globalThis.chrome = {
-    storage: {
-      local: {
-        get: async (key) => (key in data ? { [key]: data[key] } : {}),
-        set: async (obj) => {
-          const snapshot = structuredClone(obj);
-          writes++;
-          if (writes === 1) {
-            await new Promise((resolve) => { releaseFirst = resolve; });
-          }
-          Object.assign(data, snapshot);
-        },
-        remove: async (key) => { delete data[key]; },
-      },
-      onChanged: { addListener() {} },
+  globalThis.chrome = createFakeChrome({}, {
+    async beforeSet({ writeCount }) {
+      if (writeCount === 1) {
+        await new Promise((resolve) => { releaseFirst = resolve; });
+      }
     },
-  };
+  });
 
   const store = new W.Storage.PageStore("https://race.example/");
   store.queue({ note: "first", highlights: [] });
@@ -357,39 +325,26 @@ eq(X.crc32(new TextEncoder().encode("123456789")), 0xcbf43926, "crc32 matches th
   await flushing;
   await new Promise((resolve) => setTimeout(resolve, 0));
   await store.flushNow();
-  eq(data["wm:https://race.example/"].note, "second",
+  eq(chrome._dump()["wm:https://race.example/"].note, "second",
      "PageStore preserves edits queued during an in-flight write");
   delete globalThis.chrome;
 }
 
 /* ---- PageStore delete/write ordering ---- */
 {
-  let data = {};
   let releaseFirst;
-  let writes = 0;
   const operations = [];
-  globalThis.chrome = {
-    storage: {
-      local: {
-        get: async (key) => (key in data ? { [key]: data[key] } : {}),
-        set: async (obj) => {
-          const snapshot = structuredClone(obj);
-          const note = Object.values(snapshot)[0].note;
-          operations.push("set:" + note);
-          writes++;
-          if (writes === 1) {
-            await new Promise((resolve) => { releaseFirst = resolve; });
-          }
-          Object.assign(data, snapshot);
-        },
-        remove: async (key) => {
-          operations.push("remove");
-          delete data[key];
-        },
-      },
-      onChanged: { addListener() {} },
+  globalThis.chrome = createFakeChrome({}, {
+    async beforeSet({ snapshot, writeCount }) {
+      operations.push("set:" + Object.values(snapshot)[0].note);
+      if (writeCount === 1) {
+        await new Promise((resolve) => { releaseFirst = resolve; });
+      }
     },
-  };
+    beforeRemove() {
+      operations.push("remove");
+    },
+  });
 
   const store = new W.Storage.PageStore("https://ordered.example/");
   store.queue({ note: "before-delete", highlights: [] });
@@ -402,7 +357,8 @@ eq(X.crc32(new TextEncoder().encode("123456789")), 0xcbf43926, "crc32 matches th
   await removing;
   await store.flushNow();
 
-  eq(data["wm:https://ordered.example/"] && data["wm:https://ordered.example/"].note, "after-delete",
+  const stored = chrome._dump()["wm:https://ordered.example/"];
+  eq(stored && stored.note, "after-delete",
      "edits made after a deletion request are preserved");
   eq(operations, ["set:before-delete", "remove", "set:after-delete"],
      "storage writes and deletion execute in user-action order");

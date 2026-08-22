@@ -3,6 +3,7 @@
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { JSDOM } from "jsdom";
+import { createFakeChrome } from "./fake-chrome.mjs";
 
 const dom = new JSDOM(`<!DOCTYPE html><html><head></head><body></body></html>`, {
   pretendToBeVisual: true,
@@ -210,7 +211,7 @@ setBody(`<p id="p1">The quick brown fox jumps.</p>
   const anchor = W.Anchor.fromRange(range, doc.body);
   const pageKey = "https://privacy.example/article";
   const storageKey = "wm:" + pageKey;
-  let data = {
+  globalThis.chrome = createFakeChrome({
     [storageKey]: {
       key: pageKey,
       url: pageKey,
@@ -225,24 +226,7 @@ setBody(`<p id="p1">The quick brown fox jumps.</p>
       }],
       updatedAt: 1,
     },
-  };
-  const listeners = [];
-  globalThis.chrome = {
-    runtime: { sendMessage: async () => ({ ok: true }) },
-    storage: {
-      local: {
-        get: async (key) => {
-          if (key == null) return { ...data };
-          return key in data ? { [key]: data[key] } : {};
-        },
-        set: async (obj) => { Object.assign(data, obj); },
-        remove: async (key) => { delete data[key]; },
-      },
-      onChanged: {
-        addListener(fn) { listeners.push(fn); },
-      },
-    },
-  };
+  });
 
   const panel = new W.Panel({
     pageKey,
@@ -260,10 +244,10 @@ setBody(`<p id="p1">The quick brown fox jumps.</p>
   eq(panel.textarea.value, "secret note", "panel loaded the stored note");
   ok(panel.highlighter.has("private-hl"), "panel restored the stored highlight");
 
-  const oldValue = data[storageKey];
+  const oldValue = chrome._dump()[storageKey];
   panel._typing = true;
-  delete data[storageKey];
-  listeners.forEach((fn) => fn({ [storageKey]: { oldValue } }, "local"));
+  chrome._delete(storageKey);
+  chrome._emit({ [storageKey]: { oldValue } });
 
   eq(panel.textarea.value, "", "external deletion clears the open panel");
   ok(!panel.highlighter.has("private-hl"),
@@ -281,7 +265,7 @@ setBody(`<p id="p1">The quick brown fox jumps.</p>
   const pageB = "https://spa.example/b";
   const keyA = "wm:" + pageA;
   const keyB = "wm:" + pageB;
-  let data = {
+  const initial = {
     [keyB]: {
       key: pageB,
       url: pageB,
@@ -292,31 +276,13 @@ setBody(`<p id="p1">The quick brown fox jumps.</p>
     },
   };
   let releaseWrite;
-  let writes = 0;
-  const listeners = [];
-  globalThis.chrome = {
-    runtime: { sendMessage: async () => ({ ok: true }) },
-    storage: {
-      local: {
-        get: async (key) => {
-          if (key == null) return { ...data };
-          return key in data ? { [key]: data[key] } : {};
-        },
-        set: async (obj) => {
-          const snapshot = structuredClone(obj);
-          writes++;
-          if (writes === 1) {
-            await new Promise((resolve) => { releaseWrite = resolve; });
-          }
-          Object.assign(data, snapshot);
-        },
-        remove: async (key) => { delete data[key]; },
-      },
-      onChanged: {
-        addListener(fn) { listeners.push(fn); },
-      },
+  globalThis.chrome = createFakeChrome(initial, {
+    async beforeSet({ writeCount }) {
+      if (writeCount === 1) {
+        await new Promise((resolve) => { releaseWrite = resolve; });
+      }
     },
-  };
+  });
 
   const panel = new W.Panel({
     pageKey: pageA,
@@ -337,7 +303,8 @@ setBody(`<p id="p1">The quick brown fox jumps.</p>
   releaseWrite();
   await switching;
 
-  eq(data[keyA].note, "latest page A", "switchPage persisted the latest old-page edit");
+  eq(chrome._dump()[keyA].note, "latest page A",
+     "switchPage persisted the latest old-page edit");
   eq(panel.pageKey, pageB, "switchPage activates the destination after flushing");
   ok(panel._typing === false, "switchPage clears typing state from the previous page");
 
@@ -349,8 +316,8 @@ setBody(`<p id="p1">The quick brown fox jumps.</p>
     highlights: [],
     updatedAt: 2,
   };
-  data[keyB] = external;
-  listeners.forEach((fn) => fn({ [keyB]: { newValue: external } }, "local"));
+  chrome._put(keyB, external);
+  chrome._emit({ [keyB]: { newValue: external } });
   eq(panel.textarea.value, "newer page B",
      "destination page receives cross-tab changes immediately");
 
@@ -368,17 +335,7 @@ setBody(`<p id="p1">The quick brown fox jumps.</p>
   globalThis.window = window;
   globalThis.location = window.location;
   globalThis.setInterval = () => 0;
-  globalThis.chrome = {
-    runtime: { onMessage: { addListener() {} } },
-    storage: {
-      local: {
-        get: async () => ({}),
-        set: async () => {},
-        remove: async () => {},
-      },
-      onChanged: { addListener() {} },
-    },
-  };
+  globalThis.chrome = createFakeChrome();
   delete window.__webmarkContentLoaded;
 
   vm.runInThisContext(
