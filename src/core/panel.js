@@ -115,10 +115,32 @@
       // Reflect edits made in other tabs on the same page. A single listener
       // keyed off the *current* store so it keeps working after switchPage().
       chrome.storage.onChanged.addListener((changes, areaName) => {
-        if (areaName !== "local" || this._typing) return;
+        if (areaName !== "local") return;
         const change = changes[this.store.storageKey];
-        if (!change || !change.newValue) return;
-        this.record = change.newValue;
+        if (!change) return;
+        const deleted = !change.newValue;
+        if (this._typing && !deleted) return;
+
+        const previousHighlights = JSON.stringify(this.record.highlights || []);
+        if (deleted) {
+          this._typing = false;
+          clearTimeout(this._typingTimer);
+          // Cancel a queued local edit and make this deletion authoritative
+          // even if a storage write was already in flight.
+          this.store.remove().catch(() => {});
+        }
+        this.record = change.newValue || {
+          key: this.pageKey,
+          url: this.url,
+          title: this.title,
+          note: "",
+          highlights: [],
+          updatedAt: 0,
+        };
+        if (previousHighlights !== JSON.stringify(this.record.highlights || [])) {
+          this.highlighter.clearAll();
+          this._restoreHighlights();
+        }
         if (this.textarea && this.textarea.value !== (this.record.note || "")) {
           this.textarea.value = this.record.note || "";
         }
@@ -184,7 +206,7 @@
       this.host = this.doc.createElement("div");
       this.host.setAttribute("data-webmark-ui", "panel");
       this.host.style.cssText = "all:initial;position:fixed;z-index:2147483646;";
-      const shadow = this.host.attachShadow({ mode: "open" });
+      const shadow = this.host.attachShadow({ mode: "closed" });
       const style = this.doc.createElement("style");
       style.textContent = PANEL_CSS;
       shadow.appendChild(style);
@@ -555,7 +577,7 @@
       const host = this.doc.createElement("div");
       host.setAttribute("data-webmark-ui", "selbtn");
       host.style.cssText = "all:initial;position:fixed;z-index:2147483647;display:none;";
-      const sh = host.attachShadow({ mode: "open" });
+      const sh = host.attachShadow({ mode: "closed" });
       sh.innerHTML = `
         <style>
           .b{display:flex;align-items:center;gap:6px;background:#1d4ed8;color:#fff;border:0;
