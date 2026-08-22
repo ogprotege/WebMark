@@ -72,6 +72,11 @@
       <div class="row">
         <strong style="font-size:13px">Backup &amp; restore</strong>
         <button class="btn" id="exportAll">Export all notes (.json)</button>
+        <label for="importMode">Import as</label>
+        <select id="importMode">
+          <option value="merge">Merge (keep newer notes)</option>
+          <option value="replace">Replace all current notes</option>
+        </select>
         <button class="btn" id="importAll">Import backup…</button>
         <input type="file" id="importFile" accept="application/json,.json" hidden />
         <span class="hint">Your data stays on this device. A backup is a single file <em>you</em> control — nothing is ever uploaded.</span>
