@@ -118,13 +118,15 @@
     const pageKey = storageKey.slice(PREFIX.length);
     if (
       storageKey === SETTINGS_KEY ||
-      value.key !== pageKey ||
-      !W.util.isSupportedPageUrl(pageKey)
+      value.key !== pageKey
     ) {
       throw new Error("Backup contains an invalid note key");
     }
     const url = value.url || pageKey;
-    if (!W.util.isSupportedPageUrl(url)) {
+    if (
+      !W.util.isSupportedPageUrl(url) ||
+      W.util.keyForUrl(url) !== pageKey
+    ) {
       throw new Error("Backup contains an unsupported URL");
     }
     if (value.note != null && typeof value.note !== "string") {
