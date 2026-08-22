@@ -358,6 +358,19 @@ if (isSupportedPageUrl) {
     ok(!source.includes("webmark:control"),
        `${path.split("/").pop()} does not trust page-dispatched control events`);
   }
+
+  const managerHtml = readFileSync(
+    new URL("../src/manager/manager.html", import.meta.url),
+    "utf8"
+  );
+  const managerSource = readFileSync(
+    new URL("../src/manager/manager.js", import.meta.url),
+    "utf8"
+  );
+  ok(managerHtml.includes('id="importMode"'),
+     "backup restore exposes an explicit import mode");
+  ok(!managerSource.includes("Cancel = replace"),
+     "cancelling an import cannot trigger destructive replacement");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
