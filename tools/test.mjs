@@ -431,7 +431,10 @@ if (isSupportedPageUrl) {
   );
   const status = { innerHTML: "", style: {} };
   vm.runInNewContext(viewerSource, {
-    WebMark: { util: { isSupportedPageUrl: () => false } },
+    WebMark: {
+      util: { isSupportedPageUrl: () => false },
+      RenderCoordinator: class {},
+    },
     URLSearchParams,
     location: { search: "?file=javascript%3Aalert(1)" },
     document: {
