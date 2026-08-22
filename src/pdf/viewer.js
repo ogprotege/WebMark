@@ -97,6 +97,7 @@
 
     renderVisible();
     wireToolbar();
+    return panel;
   }
 
   /* ---------- placeholders + lazy render ---------- */
@@ -314,15 +315,11 @@
     );
   }
 
-  // Respond to the toolbar button / keyboard shortcut routed via the background.
-  chrome.runtime.onMessage.addListener((msg) => {
-    if (!panel || !msg) return;
-    if (msg.type === "toggle") panel.toggle();
-    else if (msg.type === "capture") {
-      if (!panel.isOpen) panel.open();
-      panel.addSelection();
-    }
-  });
+  const panelMessages = new W.PanelMessageRouter(main());
 
-  main();
+  // Respond to toolbar and shortcut actions, including ones received while the
+  // PDF engine and panel are still initializing.
+  chrome.runtime.onMessage.addListener((msg) => {
+    panelMessages.dispatch(msg);
+  });
 })();
