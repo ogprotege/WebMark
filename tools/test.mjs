@@ -55,6 +55,18 @@ ok(md("[hi](https://x.com)").includes('href="https://x.com"'), "safe link");
 ok(!md("[x](javascript:alert(1))").includes("javascript:"), "unsafe link stripped");
 ok(!md("<script>bad</script>").includes("<script>"), "html escaped");
 ok(md("a `c` b").includes("<code>c</code>"), "inline code");
+ok(md("`<tag>`").includes("<code>&lt;tag&gt;</code>"),
+   "inline code is escaped exactly once");
+{
+  const nul = String.fromCharCode(0);
+  ok(!md(`literal ${nul}0${nul} marker`).includes("<code>undefined</code>"),
+     "literal text cannot collide with inline-code placeholders");
+  const markdownSource = readFileSync(
+    new URL("../src/core/markdown.js", import.meta.url),
+    "utf8"
+  );
+  ok(!markdownSource.includes(nul), "markdown source remains a normal text file");
+}
 
 /* ---- anchor helpers (DOM-free) ---- */
 const A = W.Anchor._;
@@ -112,6 +124,8 @@ ok(X.toMarkdown(rec).includes("# My <Article>") && X.toMarkdown(rec).includes(">
   ok(h.includes("<!DOCTYPE html>") && h.includes("<h1>My &lt;Article&gt;</h1>"),
      "toHtmlDoc escapes title + is a full document");
   ok(h.includes("<blockquote>"), "toHtmlDoc renders the markdown body");
+  const unsafe = X.toHtmlDoc({ ...rec, url: "javascript:alert(1)" });
+  ok(!unsafe.includes('href="javascript:'), "toHtmlDoc does not create active unsafe source links");
 }
 
 /* crc32 against the standard check value */
@@ -206,7 +220,132 @@ eq(X.crc32(new TextEncoder().encode("123456789")), 0xcbf43926, "crc32 matches th
   let threw = false;
   try { await W.Storage.importAll({ foo: 1 }, "merge"); } catch { threw = true; }
   ok(threw, "importAll rejects files that aren't WebMark backups");
+
+  // replace removes local notes that are absent from the backup
+  globalThis.chrome = makeFakeChrome({
+    "wm:https://a.com/x": { key: "https://a.com/x", note: "local-a", highlights: [], updatedAt: 1 },
+    "wm:https://b.com/y": { key: "https://b.com/y", note: "local-b", highlights: [], updatedAt: 1 },
+  });
+  await W.Storage.importAll({
+    type: "webmark-backup",
+    schema: 1,
+    notes: {
+      "wm:https://a.com/x": {
+        key: "https://a.com/x",
+        url: "https://a.com/x",
+        title: "A",
+        note: "backup-a",
+        highlights: [],
+        updatedAt: 2,
+      },
+    },
+  }, "replace");
+  ok(!("wm:https://b.com/y" in chrome._dump()), "replace deletes notes absent from the backup");
+
+  // imported records must not be able to introduce active or mismatched URLs
+  threw = false;
+  try {
+    await W.Storage.importAll({
+      type: "webmark-backup",
+      schema: 1,
+      notes: {
+        "wm:javascript:alert(1)": {
+          key: "javascript:alert(1)",
+          url: "javascript:alert(1)",
+          note: "unsafe",
+          highlights: [],
+          updatedAt: 1,
+        },
+      },
+    }, "merge");
+  } catch {
+    threw = true;
+  }
+  ok(threw, "importAll rejects unsupported URL schemes");
+
+  threw = false;
+  try {
+    await W.Storage.importAll({
+      type: "webmark-backup",
+      schema: 1,
+      notes: {
+        "wm:https://a.com/x": {
+          key: "https://other.example/",
+          url: "https://other.example/",
+          note: "mismatched",
+          highlights: [],
+          updatedAt: 1,
+        },
+      },
+    }, "merge");
+  } catch {
+    threw = true;
+  }
+  ok(threw, "importAll rejects records whose key does not match the storage key");
+
+  threw = false;
+  try { await W.Storage.importAll(importData, "unknown"); } catch { threw = true; }
+  ok(threw, "importAll rejects unknown import modes");
   delete globalThis.chrome;
+}
+
+/* ---- PageStore write serialization ---- */
+{
+  let data = {};
+  let releaseFirst;
+  let writes = 0;
+  globalThis.chrome = {
+    storage: {
+      local: {
+        get: async (key) => (key in data ? { [key]: data[key] } : {}),
+        set: async (obj) => {
+          const snapshot = structuredClone(obj);
+          writes++;
+          if (writes === 1) {
+            await new Promise((resolve) => { releaseFirst = resolve; });
+          }
+          Object.assign(data, snapshot);
+        },
+        remove: async (key) => { delete data[key]; },
+      },
+      onChanged: { addListener() {} },
+    },
+  };
+
+  const store = new W.Storage.PageStore("https://race.example/");
+  store.queue({ note: "first", highlights: [] });
+  const flushing = store.flushNow();
+  store.queue({ note: "second", highlights: [] });
+  releaseFirst();
+  await flushing;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await store.flushNow();
+  eq(data["wm:https://race.example/"].note, "second",
+     "PageStore preserves edits queued during an in-flight write");
+  delete globalThis.chrome;
+}
+
+/* ---- URL and manifest security boundaries ---- */
+const isSupportedPageUrl = W.util.isSupportedPageUrl;
+ok(typeof isSupportedPageUrl === "function", "URL security policy is available");
+if (isSupportedPageUrl) {
+  ok(isSupportedPageUrl("https://example.com/a"), "https page URLs are supported");
+  ok(isSupportedPageUrl("file:///tmp/a.pdf"), "local file URLs are supported");
+  ok(!isSupportedPageUrl("javascript:alert(1)"), "javascript URLs are rejected");
+  ok(!isSupportedPageUrl("data:text/html,boom"), "data URLs are rejected");
+}
+{
+  const manifest = JSON.parse(
+    readFileSync(new URL("../manifest.json", import.meta.url), "utf8")
+  );
+  ok(!manifest.web_accessible_resources,
+     "internal extension pages are not exposed to arbitrary websites");
+
+  for (const path of ["../src/content.js", "../src/pdf/viewer.js"]) {
+    const source = readFileSync(new URL(path, import.meta.url), "utf8");
+    ok(!source.includes("webmark:control"),
+       `${path.split("/").pop()} does not trust page-dispatched control events`);
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

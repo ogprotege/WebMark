@@ -26,6 +26,8 @@ for (const f of [
   "src/core/anchor.js",
   "src/core/storage.js",
   "src/core/highlighter.js",
+  "src/core/export.js",
+  "src/core/panel.js",
 ]) {
   vm.runInThisContext(readFileSync(new URL("../" + f, import.meta.url), "utf8"), { filename: f });
 }
@@ -196,6 +198,79 @@ setBody(`<p id="p1">The quick brown fox jumps.</p>
   const hl = new W.Highlighter(doc.body, {});
   const missing = hl.restore([{ id: "x", color: "yellow", anchor: { quote: "totally absent phrase" } }]);
   eq(missing, ["x"], "missing highlight reported, not crashed");
+}
+
+/* ---- 6. panel privacy + cross-tab deletion sync ---- */
+{
+  setBody(`<main><p id="private">A private passage lives here.</p></main>`);
+  const text = doc.getElementById("private").firstChild;
+  const range = doc.createRange();
+  range.setStart(text, 2);
+  range.setEnd(text, 17);
+  const anchor = W.Anchor.fromRange(range, doc.body);
+  const pageKey = "https://privacy.example/article";
+  const storageKey = "wm:" + pageKey;
+  let data = {
+    [storageKey]: {
+      key: pageKey,
+      url: pageKey,
+      title: "Private",
+      note: "secret note",
+      highlights: [{
+        id: "private-hl",
+        color: "yellow",
+        quote: "private passage",
+        anchor,
+        createdAt: 1,
+      }],
+      updatedAt: 1,
+    },
+  };
+  const listeners = [];
+  globalThis.chrome = {
+    runtime: { sendMessage: async () => ({ ok: true }) },
+    storage: {
+      local: {
+        get: async (key) => {
+          if (key == null) return { ...data };
+          return key in data ? { [key]: data[key] } : {};
+        },
+        set: async (obj) => { Object.assign(data, obj); },
+        remove: async (key) => { delete data[key]; },
+      },
+      onChanged: {
+        addListener(fn) { listeners.push(fn); },
+      },
+    },
+  };
+
+  const panel = new W.Panel({
+    pageKey,
+    url: pageKey,
+    title: "Private",
+    contentRoot: doc.body,
+    shiftTarget: doc.documentElement,
+  });
+  await panel.init();
+
+  ok(panel.host.shadowRoot === null,
+     "host pages cannot inspect the notes panel shadow tree");
+  ok(panel.selHost.shadowRoot === null,
+     "host pages cannot manipulate the selection control shadow tree");
+  eq(panel.textarea.value, "secret note", "panel loaded the stored note");
+  ok(panel.highlighter.has("private-hl"), "panel restored the stored highlight");
+
+  const oldValue = data[storageKey];
+  delete data[storageKey];
+  listeners.forEach((fn) => fn({ [storageKey]: { oldValue } }, "local"));
+
+  eq(panel.textarea.value, "", "external deletion clears the open panel");
+  ok(!panel.highlighter.has("private-hl"),
+     "external deletion removes stale on-page highlights");
+
+  panel.host.remove();
+  panel.selHost.remove();
+  delete globalThis.chrome;
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
