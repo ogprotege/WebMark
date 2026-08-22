@@ -20,7 +20,7 @@
       };
 
       entry.promise = Promise.resolve()
-        .then(() => task(isCurrent))
+        .then(() => (isCurrent() ? task(isCurrent) : undefined))
         .finally(() => {
           if (isCurrent()) this.entries.delete(key);
         });
