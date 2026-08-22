@@ -400,6 +400,12 @@ if (isSupportedPageUrl) {
     ok(!source.includes("webmark:control"),
        `${path.split("/").pop()} does not trust page-dispatched control events`);
   }
+  const viewerSource = readFileSync(
+    new URL("../src/pdf/viewer.js", import.meta.url),
+    "utf8"
+  );
+  ok(viewerSource.includes("isSupportedPageUrl(fileUrl)"),
+     "PDF viewer rejects unsupported source URL schemes");
 
   const managerHtml = readFileSync(
     new URL("../src/manager/manager.html", import.meta.url),
