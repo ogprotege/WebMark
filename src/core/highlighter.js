@@ -3,14 +3,7 @@
 // layer because both are ordinary DOM.
 (function () {
   const W = (globalThis.WebMark = globalThis.WebMark || {});
-
-  const COLORS = [
-    { id: "yellow", label: "Yellow", css: "#fde68a" },
-    { id: "green", label: "Green", css: "#bbf7d0" },
-    { id: "blue", label: "Blue", css: "#bfdbfe" },
-    { id: "pink", label: "Pink", css: "#fbcfe8" },
-    { id: "orange", label: "Orange", css: "#fed7aa" },
-  ];
+  const COLORS = W.COLORS;
 
   function injectPageStyle(doc) {
     if (doc.getElementById("webmark-page-style")) return;
@@ -173,5 +166,4 @@
   }
 
   W.Highlighter = Highlighter;
-  W.COLORS = COLORS;
 })();

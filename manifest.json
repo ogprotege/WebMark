@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "WebMark — Margin Notes for Pages & PDFs",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Read any web page or PDF with a Markdown notes column in the margin. Highlight passages and they become blockquotes you can take notes on.",
   "icons": {
     "16": "icons/icon16.png",
@@ -53,18 +53,5 @@
   "options_ui": {
     "page": "src/manager/manager.html",
     "open_in_tab": true
-  },
-  "web_accessible_resources": [
-    {
-      "resources": [
-        "src/pdf/viewer.html",
-        "src/pdf/viewer.js",
-        "src/pdf/viewer.css",
-        "src/manager/manager.html",
-        "vendor/pdfjs/*",
-        "src/core/*"
-      ],
-      "matches": ["<all_urls>"]
-    }
-  ]
+  }
 }

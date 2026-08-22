@@ -21,6 +21,7 @@
   const pageDivs = [];               // 1-indexed page elements
   const rendered = new Set();        // page numbers currently rendered
   const renderTasks = new Map();     // page -> PDF.js RenderTask (for cancel)
+  const renders = new W.RenderCoordinator();
   const MAX_RENDERED = 14;           // memory cap for very large PDFs
 
   function setStatus(html) {
@@ -28,8 +29,8 @@
     statusEl.style.display = html ? "" : "none";
   }
 
-  if (!fileUrl) {
-    setStatus("No PDF specified.");
+  if (!fileUrl || !W.util.isSupportedPageUrl(fileUrl)) {
+    setStatus(fileUrl ? "Unsupported PDF URL." : "No PDF specified.");
     return;
   }
   document.getElementById("openOriginal").href = fileUrl;
@@ -96,6 +97,7 @@
 
     renderVisible();
     wireToolbar();
+    return panel;
   }
 
   /* ---------- placeholders + lazy render ---------- */
@@ -105,6 +107,7 @@
 
   function buildPlaceholders() {
     pagesEl.innerHTML = "";
+    renders.invalidateAll();
     rendered.clear();
     renderTasks.clear();
     pageDivs.length = 0;
@@ -124,18 +127,27 @@
     }
   }
 
-  async function renderPage(n) {
-    if (!n || rendered.has(n)) return;
+  function renderPage(n) {
+    if (!n) return Promise.resolve();
+    const div = pageDivs[n];
+    if (rendered.has(n) && div && !div.classList.contains("placeholder")) {
+      return Promise.resolve();
+    }
+    return renders.run(n, (isCurrent) => performRenderPage(n, isCurrent));
+  }
+
+  async function performRenderPage(n, isCurrent) {
     rendered.add(n); // reserve immediately to avoid double-render
     const myScale = scale;
     let page;
     try {
       page = await pdfDoc.getPage(n);
     } catch {
-      rendered.delete(n);
+      if (isCurrent()) rendered.delete(n);
       return;
     }
     const div = pageDivs[n];
+    if (!isCurrent()) return;
     if (!div || myScale !== scale) {
       rendered.delete(n);
       return;
@@ -169,11 +181,16 @@
     try {
       await task.promise;
     } catch {
-      renderTasks.delete(n);
-      rendered.delete(n);
+      if (isCurrent()) {
+        if (renderTasks.get(n) === task) renderTasks.delete(n);
+        rendered.delete(n);
+        div.className = "page placeholder";
+        div.innerHTML = placeholderInner(n);
+      }
       return; // cancelled (e.g. by a zoom) — leave as placeholder
     }
-    renderTasks.delete(n);
+    if (!isCurrent()) return;
+    if (renderTasks.get(n) === task) renderTasks.delete(n);
     if (myScale !== scale) {
       rendered.delete(n);
       return;
@@ -189,6 +206,7 @@
       /* text layer optional */
     }
 
+    if (!isCurrent() || myScale !== scale) return;
     div.classList.remove("placeholder");
     if (panel) panel.reapplyHighlights(); // re-attach highlights now on this page
     evictIfNeeded(n);
@@ -206,6 +224,7 @@
   }
 
   function evict(p) {
+    renders.invalidate(p);
     const task = renderTasks.get(p);
     if (task && task.cancel) {
       try { task.cancel(); } catch {}
@@ -242,6 +261,7 @@
     scale = Math.min(4, Math.max(0.3, s));
     document.getElementById("zoomLevel").textContent =
       Math.round((scale / baseScale) * 100) + "%";
+    renders.invalidateAll();
     renderTasks.forEach((t) => {
       if (t && t.cancel) { try { t.cancel(); } catch {} }
     });
@@ -295,29 +315,11 @@
     );
   }
 
-  // Respond to the toolbar button / keyboard shortcut routed via the background.
+  const panelMessages = new W.PanelMessageRouter(main());
+
+  // Respond to toolbar and shortcut actions, including ones received while the
+  // PDF engine and panel are still initializing.
   chrome.runtime.onMessage.addListener((msg) => {
-    if (!panel || !msg) return;
-    if (msg.type === "toggle") panel.toggle();
-    else if (msg.type === "capture") {
-      if (!panel.isOpen) panel.open();
-      panel.addSelection();
-    }
+    panelMessages.dispatch(msg);
   });
-
-  // Automation / integration hook (mirrors the content script): drive the
-  // reader's panel from page-context JS, e.g.
-  //   document.dispatchEvent(new CustomEvent('webmark:control', { detail: 'capture' }))
-  document.addEventListener("webmark:control", (e) => {
-    if (!panel) return;
-    const action = typeof e.detail === "string" ? e.detail : (e.detail && e.detail.action);
-    if (action === "open") panel.open();
-    else if (action === "close") panel.close();
-    else if (action === "capture") {
-      if (!panel.isOpen) panel.open();
-      panel.addSelection();
-    } else panel.toggle();
-  });
-
-  main();
 })();

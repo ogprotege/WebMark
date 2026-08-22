@@ -3,6 +3,7 @@
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { JSDOM } from "jsdom";
+import { createFakeChrome } from "./fake-chrome.mjs";
 
 const dom = new JSDOM(`<!DOCTYPE html><html><head></head><body></body></html>`, {
   pretendToBeVisual: true,
@@ -26,6 +27,8 @@ for (const f of [
   "src/core/anchor.js",
   "src/core/storage.js",
   "src/core/highlighter.js",
+  "src/core/export.js",
+  "src/core/panel.js",
 ]) {
   vm.runInThisContext(readFileSync(new URL("../" + f, import.meta.url), "utf8"), { filename: f });
 }
@@ -196,6 +199,224 @@ setBody(`<p id="p1">The quick brown fox jumps.</p>
   const hl = new W.Highlighter(doc.body, {});
   const missing = hl.restore([{ id: "x", color: "yellow", anchor: { quote: "totally absent phrase" } }]);
   eq(missing, ["x"], "missing highlight reported, not crashed");
+}
+
+/* ---- 6. panel privacy + cross-tab deletion sync ---- */
+{
+  setBody(`<main><p id="private">A private passage lives here.</p></main>`);
+  const text = doc.getElementById("private").firstChild;
+  const range = doc.createRange();
+  range.setStart(text, 2);
+  range.setEnd(text, 17);
+  const anchor = W.Anchor.fromRange(range, doc.body);
+  const pageKey = "https://privacy.example/article";
+  const storageKey = "wm:" + pageKey;
+  globalThis.chrome = createFakeChrome({
+    [storageKey]: {
+      key: pageKey,
+      url: pageKey,
+      title: "Private",
+      note: "secret note",
+      highlights: [{
+        id: "private-hl",
+        color: "yellow",
+        quote: "private passage",
+        anchor,
+        createdAt: 1,
+      }],
+      updatedAt: 1,
+    },
+  });
+
+  const panel = new W.Panel({
+    pageKey,
+    url: pageKey,
+    title: "Private",
+    contentRoot: doc.body,
+    shiftTarget: doc.documentElement,
+  });
+  await panel.init();
+
+  ok(panel.host.shadowRoot === null,
+     "host pages cannot inspect the notes panel shadow tree");
+  ok(panel.selHost.shadowRoot === null,
+     "host pages cannot manipulate the selection control shadow tree");
+  eq(panel.textarea.value, "secret note", "panel loaded the stored note");
+  ok(panel.highlighter.has("private-hl"), "panel restored the stored highlight");
+
+  const oldValue = chrome._dump()[storageKey];
+  panel._typing = true;
+  chrome._delete(storageKey);
+  chrome._emit({ [storageKey]: { oldValue } });
+
+  eq(panel.textarea.value, "", "external deletion clears the open panel");
+  ok(!panel.highlighter.has("private-hl"),
+     "external deletion removes stale on-page highlights");
+
+  panel.host.remove();
+  panel.selHost.remove();
+  delete globalThis.chrome;
+}
+
+/* ---- 7. SPA switches flush before loading and reset typing state ---- */
+{
+  setBody(`<main><p>SPA article body.</p></main>`);
+  const pageA = "https://spa.example/a";
+  const pageB = "https://spa.example/b";
+  const keyA = "wm:" + pageA;
+  const keyB = "wm:" + pageB;
+  const initial = {
+    [keyB]: {
+      key: pageB,
+      url: pageB,
+      title: "B",
+      note: "page B",
+      highlights: [],
+      updatedAt: 1,
+    },
+  };
+  let releaseWrite;
+  globalThis.chrome = createFakeChrome(initial, {
+    async beforeSet({ writeCount }) {
+      if (writeCount === 1) {
+        await new Promise((resolve) => { releaseWrite = resolve; });
+      }
+    },
+  });
+
+  const panel = new W.Panel({
+    pageKey: pageA,
+    url: pageA,
+    title: "A",
+    contentRoot: doc.body,
+    shiftTarget: doc.documentElement,
+  });
+  await panel.init();
+  panel.textarea.value = "latest page A";
+  panel.record.note = panel.textarea.value;
+  panel._typing = true;
+  panel._persist();
+
+  const switching = panel.switchPage(pageB, pageB, "B");
+  await Promise.resolve();
+  eq(panel.pageKey, pageA, "switchPage waits for the old page write");
+  releaseWrite();
+  await switching;
+
+  eq(chrome._dump()[keyA].note, "latest page A",
+     "switchPage persisted the latest old-page edit");
+  eq(panel.pageKey, pageB, "switchPage activates the destination after flushing");
+  ok(panel._typing === false, "switchPage clears typing state from the previous page");
+
+  const external = {
+    key: pageB,
+    url: pageB,
+    title: "B",
+    note: "newer page B",
+    highlights: [],
+    updatedAt: 2,
+  };
+  chrome._put(keyB, external);
+  chrome._emit({ [keyB]: { newValue: external } });
+  eq(panel.textarea.value, "newer page B",
+     "destination page receives cross-tab changes immediately");
+
+  panel.host.remove();
+  panel.selHost.remove();
+  delete globalThis.chrome;
+}
+
+/* ---- 8. host-page control events cannot mutate extension state ---- */
+{
+  setBody(`<article><p>Host-controlled text.</p></article>`);
+  const previousWindow = globalThis.window;
+  const previousLocation = globalThis.location;
+  const previousSetInterval = globalThis.setInterval;
+  globalThis.window = window;
+  globalThis.location = window.location;
+  globalThis.setInterval = () => 0;
+  globalThis.chrome = createFakeChrome();
+  delete window.__webmarkContentLoaded;
+
+  vm.runInThisContext(
+    readFileSync(new URL("../src/content.js", import.meta.url), "utf8"),
+    { filename: "src/content.js" }
+  );
+  await Promise.resolve();
+  doc.dispatchEvent(new window.CustomEvent("webmark:control", { detail: "capture" }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  ok(!doc.querySelector('[data-webmark-ui="panel"]'),
+     "page-dispatched control events cannot create or drive the notes panel");
+
+  globalThis.setInterval = previousSetInterval;
+  if (previousWindow === undefined) delete globalThis.window;
+  else globalThis.window = previousWindow;
+  if (previousLocation === undefined) delete globalThis.location;
+  else globalThis.location = previousLocation;
+  delete globalThis.chrome;
+}
+
+/* ---- 9. cancelling destructive backup import performs no write ---- */
+{
+  const managerDom = new JSDOM(
+    readFileSync(new URL("../src/manager/manager.html", import.meta.url), "utf8")
+  );
+  const managerDocument = managerDom.window.document;
+  const importModes = [];
+  let confirmResult = false;
+  const managerContext = {
+    document: managerDocument,
+    WebMark: {
+      COLORS: [],
+      util: {
+        escapeHtml: (value) => String(value),
+        todayIso: () => "2026-08-22",
+      },
+      Export: {
+        FORMATS: [],
+        downloadBlob() {},
+        exportAs() {},
+      },
+      Storage: {
+        getSettings: async () => ({ autoOpenPdf: true, defaultColor: "yellow" }),
+        setSettings: async () => {},
+        listNotes: async () => [],
+        exportAll: async () => ({}),
+        importAll: async (_data, mode) => {
+          importModes.push(mode);
+          return { total: 0, added: 0, updated: 0, skipped: 0 };
+        },
+      },
+    },
+    chrome: {
+      runtime: { getURL: (path) => "chrome-extension://test/" + path },
+      tabs: { create() {} },
+    },
+    Blob,
+    confirm: () => confirmResult,
+    alert() {},
+    console,
+  };
+  vm.runInNewContext(
+    readFileSync(new URL("../src/manager/manager.js", import.meta.url), "utf8"),
+    managerContext,
+    { filename: "src/manager/manager.js" }
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const input = managerDocument.getElementById("importFile");
+  Object.defineProperty(input, "files", {
+    configurable: true,
+    value: [{ text: async () => JSON.stringify({ type: "webmark-backup", notes: {} }) }],
+  });
+  managerDocument.getElementById("importMode").value = "replace";
+  await input.onchange();
+  eq(importModes, [], "cancelling replacement does not import or delete notes");
+
+  confirmResult = true;
+  await input.onchange();
+  eq(importModes, ["replace"], "confirmed replacement uses replace mode");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

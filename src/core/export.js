@@ -23,6 +23,13 @@
     return (base || "webmark") + "-" + (W.util.todayIso ? W.util.todayIso() : "notes");
   }
 
+  function sourceHtml(url) {
+    if (!url) return "";
+    const text = esc(url);
+    if (!W.util.isSupportedPageUrl(url)) return `Source: ${text}<br>`;
+    return `Source: <a href="${text}" rel="noopener noreferrer">${text}</a><br>`;
+  }
+
   /* ---------- format builders ---------- */
 
   function toMarkdown(rec) {
@@ -85,7 +92,7 @@
 </style></head>
 <body>
 <h1>${esc(rec.title || rec.url || "Untitled")}</h1>
-<div class="meta">${rec.url ? `Source: <a href="${esc(rec.url)}">${esc(rec.url)}</a><br>` : ""}Saved: ${esc(fmtDate(rec.updatedAt))}</div>
+<div class="meta">${sourceHtml(rec.url)}Saved: ${esc(fmtDate(rec.updatedAt))}</div>
 <hr>
 ${bodyHtml}
 </body></html>`;

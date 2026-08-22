@@ -127,11 +127,19 @@
         alert("That doesn't look like a valid WebMark backup file.");
         return;
       }
-      const replace = confirm(
-        "Import this backup?\n\nOK = merge (keep the newer copy of each note)\nCancel = replace everything with the backup"
-      );
+      const requestedMode = document.getElementById("importMode").value;
+      const mode = requestedMode === "replace" ? "replace" : "merge";
+      if (
+        mode === "replace" &&
+        !confirm(
+          "Replace all current notes with this backup?\n\n" +
+          "Notes that are not in the backup will be deleted. This cannot be undone."
+        )
+      ) {
+        return;
+      }
       try {
-        const res = await W.Storage.importAll(data, replace ? "merge" : "replace");
+        const res = await W.Storage.importAll(data, mode);
         notes = await W.Storage.listNotes();
         render();
         alert(

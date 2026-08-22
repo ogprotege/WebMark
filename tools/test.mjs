@@ -2,6 +2,7 @@
 // Loads the core modules into this realm and exercises the DOM-free helpers.
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import { createFakeChrome } from "./fake-chrome.mjs";
 
 const files = [
   "src/core/util.js",
@@ -10,11 +11,15 @@ const files = [
   "src/core/storage.js",
   "src/core/highlighter.js",
   "src/core/export.js",
+  "src/pdf/render-coordinator.js",
+  "src/pdf/panel-messages.js",
 ];
 for (const f of files) {
   vm.runInThisContext(readFileSync(new URL("../" + f, import.meta.url), "utf8"), { filename: f });
 }
 const W = globalThis.WebMark;
+const RenderCoordinator = W.RenderCoordinator;
+const PanelMessageRouter = W.PanelMessageRouter;
 
 let pass = 0, fail = 0;
 function eq(actual, expected, msg) {
@@ -55,6 +60,18 @@ ok(md("[hi](https://x.com)").includes('href="https://x.com"'), "safe link");
 ok(!md("[x](javascript:alert(1))").includes("javascript:"), "unsafe link stripped");
 ok(!md("<script>bad</script>").includes("<script>"), "html escaped");
 ok(md("a `c` b").includes("<code>c</code>"), "inline code");
+ok(md("`<tag>`").includes("<code>&lt;tag&gt;</code>"),
+   "inline code is escaped exactly once");
+{
+  const nul = String.fromCharCode(0);
+  ok(!md(`literal ${nul}0${nul} marker`).includes("<code>undefined</code>"),
+     "literal text cannot collide with inline-code placeholders");
+  const markdownSource = readFileSync(
+    new URL("../src/core/markdown.js", import.meta.url),
+    "utf8"
+  );
+  ok(!markdownSource.includes(nul), "markdown source remains a normal text file");
+}
 
 /* ---- anchor helpers (DOM-free) ---- */
 const A = W.Anchor._;
@@ -112,6 +129,8 @@ ok(X.toMarkdown(rec).includes("# My <Article>") && X.toMarkdown(rec).includes(">
   ok(h.includes("<!DOCTYPE html>") && h.includes("<h1>My &lt;Article&gt;</h1>"),
      "toHtmlDoc escapes title + is a full document");
   ok(h.includes("<blockquote>"), "toHtmlDoc renders the markdown body");
+  const unsafe = X.toHtmlDoc({ ...rec, url: "javascript:alert(1)" });
+  ok(!unsafe.includes('href="javascript:'), "toHtmlDoc does not create active unsafe source links");
 }
 
 /* crc32 against the standard check value */
@@ -139,29 +158,8 @@ eq(X.crc32(new TextEncoder().encode("123456789")), 0xcbf43926, "crc32 matches th
 
 /* ---- storage Backup & Restore (with a fake chrome.storage.local) ---- */
 {
-  const makeFakeChrome = (initial = {}) => {
-    let data = { ...initial };
-    return {
-      storage: {
-        local: {
-          get: async (k) => {
-            if (k == null) return { ...data };
-            if (typeof k === "string") return k in data ? { [k]: data[k] } : {};
-            const out = {};
-            (Array.isArray(k) ? k : Object.keys(k)).forEach((x) => { if (x in data) out[x] = data[x]; });
-            return out;
-          },
-          set: async (obj) => { Object.assign(data, obj); },
-          remove: async (k) => { (Array.isArray(k) ? k : [k]).forEach((x) => delete data[x]); },
-        },
-        onChanged: { addListener() {} },
-      },
-      _dump: () => data,
-    };
-  };
-
   // export gathers notes + settings, ignores unrelated keys
-  globalThis.chrome = makeFakeChrome({
+  globalThis.chrome = createFakeChrome({
     "wm:https://a.com/x": { key: "https://a.com/x", note: "alpha", updatedAt: 100 },
     "wm:https://b.com/y": { key: "https://b.com/y", note: "beta", updatedAt: 200 },
     "wm:settings": { defaultColor: "green" },
@@ -173,7 +171,7 @@ eq(X.crc32(new TextEncoder().encode("123456789")), 0xcbf43926, "crc32 matches th
   ok(!("unrelated" in backup.notes), "exportAll ignores non-WebMark keys");
 
   // import merge keeps the newer record, adds new ones, skips older
-  globalThis.chrome = makeFakeChrome({
+  globalThis.chrome = createFakeChrome({
     "wm:https://a.com/x": { key: "https://a.com/x", note: "OLD-local", updatedAt: 50 },
   });
   const importData = {
@@ -188,7 +186,7 @@ eq(X.crc32(new TextEncoder().encode("123456789")), 0xcbf43926, "crc32 matches th
   eq(chrome._dump()["wm:https://a.com/x"].note, "NEW-backup", "merge keeps the newer note");
 
   // merge skips when local is newer
-  globalThis.chrome = makeFakeChrome({
+  globalThis.chrome = createFakeChrome({
     "wm:https://a.com/x": { key: "https://a.com/x", note: "LOCAL-newer", updatedAt: 999 },
   });
   const res2 = await W.Storage.importAll(importData, "merge");
@@ -196,7 +194,7 @@ eq(X.crc32(new TextEncoder().encode("123456789")), 0xcbf43926, "crc32 matches th
   eq(chrome._dump()["wm:https://a.com/x"].note, "LOCAL-newer", "merge leaves newer local note intact");
 
   // replace mode overwrites regardless of timestamps
-  globalThis.chrome = makeFakeChrome({
+  globalThis.chrome = createFakeChrome({
     "wm:https://a.com/x": { key: "https://a.com/x", note: "LOCAL-newer", updatedAt: 999 },
   });
   await W.Storage.importAll(importData, "replace");
@@ -206,8 +204,270 @@ eq(X.crc32(new TextEncoder().encode("123456789")), 0xcbf43926, "crc32 matches th
   let threw = false;
   try { await W.Storage.importAll({ foo: 1 }, "merge"); } catch { threw = true; }
   ok(threw, "importAll rejects files that aren't WebMark backups");
+
+  // replace removes local notes that are absent from the backup
+  globalThis.chrome = createFakeChrome({
+    "wm:https://a.com/x": { key: "https://a.com/x", note: "local-a", highlights: [], updatedAt: 1 },
+    "wm:https://b.com/y": { key: "https://b.com/y", note: "local-b", highlights: [], updatedAt: 1 },
+  });
+  await W.Storage.importAll({
+    type: "webmark-backup",
+    schema: 1,
+    notes: {
+      "wm:https://a.com/x": {
+        key: "https://a.com/x",
+        url: "https://a.com/x",
+        title: "A",
+        note: "backup-a",
+        highlights: [],
+        updatedAt: 2,
+      },
+    },
+  }, "replace");
+  ok(!("wm:https://b.com/y" in chrome._dump()), "replace deletes notes absent from the backup");
+
+  // imported records must not be able to introduce active or mismatched URLs
+  threw = false;
+  try {
+    await W.Storage.importAll({
+      type: "webmark-backup",
+      schema: 1,
+      notes: {
+        "wm:javascript:alert(1)": {
+          key: "javascript:alert(1)",
+          url: "javascript:alert(1)",
+          note: "unsafe",
+          highlights: [],
+          updatedAt: 1,
+        },
+      },
+    }, "merge");
+  } catch {
+    threw = true;
+  }
+  ok(threw, "importAll rejects unsupported URL schemes");
+
+  threw = false;
+  try {
+    await W.Storage.importAll({
+      type: "webmark-backup",
+      schema: 1,
+      notes: {
+        "wm:https://a.com/x": {
+          key: "https://other.example/",
+          url: "https://other.example/",
+          note: "mismatched",
+          highlights: [],
+          updatedAt: 1,
+        },
+      },
+    }, "merge");
+  } catch {
+    threw = true;
+  }
+  ok(threw, "importAll rejects records whose key does not match the storage key");
+
+  threw = false;
+  try { await W.Storage.importAll(importData, "unknown"); } catch { threw = true; }
+  ok(threw, "importAll rejects unknown import modes");
+
+  const localUrl = "file:///home/reader/paper.pdf";
+  const localKey = W.util.keyForUrl(localUrl);
+  globalThis.chrome = createFakeChrome();
+  const localResult = await W.Storage.importAll({
+    type: "webmark-backup",
+    schema: 1,
+    notes: {
+      ["wm:" + localKey]: {
+        key: localKey,
+        url: localUrl,
+        title: "Local paper",
+        note: "offline note",
+        highlights: [],
+        updatedAt: 1,
+      },
+    },
+  }, "merge").catch(() => null);
+  ok(localResult && localResult.added === 1,
+     "importAll accepts backups for supported local PDF URLs");
+
+  globalThis.chrome = createFakeChrome({
+    "wm:settings": {
+      autoOpenPdf: "yes",
+      defaultColor: "not-a-colour",
+      panelWidth: "100vw",
+      fontScale: null,
+    },
+  });
+  const safeSettings = await W.Storage.getSettings();
+  eq(safeSettings, W.Storage.DEFAULT_SETTINGS,
+     "getSettings discards malformed persisted values");
   delete globalThis.chrome;
 }
+
+/* ---- PageStore write serialization ---- */
+{
+  let releaseFirst;
+  globalThis.chrome = createFakeChrome({}, {
+    async beforeSet({ writeCount }) {
+      if (writeCount === 1) {
+        await new Promise((resolve) => { releaseFirst = resolve; });
+      }
+    },
+  });
+
+  const store = new W.Storage.PageStore("https://race.example/");
+  store.queue({ note: "first", highlights: [] });
+  const flushing = store.flushNow();
+  await Promise.resolve();
+  store.queue({ note: "second", highlights: [] });
+  releaseFirst();
+  await flushing;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await store.flushNow();
+  eq(chrome._dump()["wm:https://race.example/"].note, "second",
+     "PageStore preserves edits queued during an in-flight write");
+  delete globalThis.chrome;
+}
+
+/* ---- PageStore delete/write ordering ---- */
+{
+  let releaseFirst;
+  const operations = [];
+  globalThis.chrome = createFakeChrome({}, {
+    async beforeSet({ snapshot, writeCount }) {
+      operations.push("set:" + Object.values(snapshot)[0].note);
+      if (writeCount === 1) {
+        await new Promise((resolve) => { releaseFirst = resolve; });
+      }
+    },
+    beforeRemove() {
+      operations.push("remove");
+    },
+  });
+
+  const store = new W.Storage.PageStore("https://ordered.example/");
+  store.queue({ note: "before-delete", highlights: [] });
+  const firstWrite = store.flushNow();
+  await Promise.resolve();
+  const removing = store.remove();
+  store.queue({ note: "after-delete", highlights: [] });
+  releaseFirst();
+  await firstWrite;
+  await removing;
+  await store.flushNow();
+
+  const stored = chrome._dump()["wm:https://ordered.example/"];
+  eq(stored && stored.note, "after-delete",
+     "edits made after a deletion request are preserved");
+  eq(operations, ["set:before-delete", "remove", "set:after-delete"],
+     "storage writes and deletion execute in user-action order");
+  delete globalThis.chrome;
+}
+
+/* ---- URL and manifest security boundaries ---- */
+const isSupportedPageUrl = W.util.isSupportedPageUrl;
+ok(typeof isSupportedPageUrl === "function", "URL security policy is available");
+if (isSupportedPageUrl) {
+  ok(isSupportedPageUrl("https://example.com/a"), "https page URLs are supported");
+  ok(isSupportedPageUrl("file:///tmp/a.pdf"), "local file URLs are supported");
+  ok(!isSupportedPageUrl("javascript:alert(1)"), "javascript URLs are rejected");
+  ok(!isSupportedPageUrl("data:text/html,boom"), "data URLs are rejected");
+}
+{
+  const manifest = JSON.parse(
+    readFileSync(new URL("../manifest.json", import.meta.url), "utf8")
+  );
+  ok(!manifest.web_accessible_resources,
+     "internal extension pages are not exposed to arbitrary websites");
+
+  const viewerSource = readFileSync(
+    new URL("../src/pdf/viewer.js", import.meta.url),
+    "utf8"
+  );
+  const status = { innerHTML: "", style: {} };
+  vm.runInNewContext(viewerSource, {
+    WebMark: {
+      util: { isSupportedPageUrl: () => false },
+      RenderCoordinator: class {},
+    },
+    URLSearchParams,
+    location: { search: "?file=javascript%3Aalert(1)" },
+    document: {
+      getElementById(id) {
+        return id === "status" ? status : {};
+      },
+    },
+  });
+  eq(status.innerHTML, "Unsupported PDF URL.",
+     "PDF viewer rejects unsupported source URL schemes");
+}
+
+/* ---- PDF render coordination ---- */
+ok(typeof RenderCoordinator === "function",
+   "PDF rendering exposes a reusable in-flight coordinator");
+  const coordinator = new RenderCoordinator();
+  let releaseFirst;
+  let starts = 0;
+  const first = coordinator.run("page-1", async (isCurrent) => {
+    starts++;
+    await new Promise((resolve) => { releaseFirst = resolve; });
+    return isCurrent();
+  });
+  const joined = coordinator.run("page-1", async () => {
+    starts++;
+    return false;
+  });
+  ok(first === joined, "duplicate page renders join the in-flight promise");
+  await Promise.resolve();
+  eq(starts, 1, "only one render starts for a page");
+  releaseFirst();
+  eq(await first, true, "a current render remains authoritative");
+
+  let releaseStale;
+  const stale = coordinator.run("page-2", async (isCurrent) => {
+    await new Promise((resolve) => { releaseStale = resolve; });
+    return isCurrent();
+  });
+  await Promise.resolve();
+  coordinator.invalidate("page-2");
+  const replacement = coordinator.run("page-2", async (isCurrent) => isCurrent());
+  releaseStale();
+  eq(await stale, false, "invalidated renders cannot mutate replacement state");
+  eq(await replacement, true, "replacement render becomes authoritative");
+
+  let invalidatedTaskStarted = false;
+  const invalidatedBeforeStart = coordinator.run("page-3", async () => {
+    invalidatedTaskStarted = true;
+  });
+  coordinator.invalidate("page-3");
+  await invalidatedBeforeStart;
+  ok(!invalidatedTaskStarted, "renders invalidated before startup do no work");
+
+/* ---- PDF panel message readiness ---- */
+ok(typeof PanelMessageRouter === "function",
+   "PDF panel messages have a readiness-aware router");
+  let resolvePanel;
+  const ready = new Promise((resolve) => { resolvePanel = resolve; });
+  const calls = [];
+  const fakePanel = {
+    isOpen: true,
+    toggle() { calls.push("toggle"); },
+    open() { this.isOpen = true; calls.push("open"); },
+    addSelection() { calls.push("capture"); },
+  };
+  const router = new PanelMessageRouter(ready);
+  const pending = router.dispatch({ type: "toggle" });
+  await Promise.resolve();
+  eq(calls, [], "messages wait while the PDF panel initializes");
+  resolvePanel(fakePanel);
+  eq(await pending, true, "queued panel messages report delivery");
+  eq(calls, ["toggle"], "queued toggle runs after panel initialization");
+
+  fakePanel.isOpen = false;
+  eq(await router.dispatch({ type: "capture" }), true, "capture message is delivered");
+  eq(calls.slice(-2), ["open", "capture"], "capture opens the panel before capturing");
+  eq(await router.dispatch({ type: "unknown" }), false, "unknown panel messages are ignored");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

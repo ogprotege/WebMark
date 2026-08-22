@@ -13,7 +13,7 @@ note exports to Markdown, plain text, HTML, Word, and PDF.
 
 <br>
 
-![Version](https://img.shields.io/badge/version-0.1.0-2563eb?style=flat&logo=googlechrome&logoColor=white)
+![Version](https://img.shields.io/badge/version-0.1.1-2563eb?style=flat&logo=googlechrome&logoColor=white)
 ![Manifest V3](https://img.shields.io/badge/Chrome-Manifest_V3-1d4ed8?style=flat&logo=googlechrome&logoColor=white)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e?style=flat)](LICENSE)
 ![Offline](https://img.shields.io/badge/storage-local--first-0ea5e9?style=flat)
@@ -25,7 +25,7 @@ note exports to Markdown, plain text, HTML, Word, and PDF.
 ![HTML5](https://img.shields.io/badge/HTML5-_-e34f26?style=flat&logo=html5&logoColor=white)
 ![CSS3](https://img.shields.io/badge/CSS3-_-1572b6?style=flat&logo=css3&logoColor=white)
 ![Dependencies](https://img.shields.io/badge/dependencies-zero-22c55e?style=flat)
-![Tests](https://img.shields.io/badge/tests-78_passing-3fb950?style=flat)
+![Tests](https://img.shields.io/badge/tests-126_passing-3fb950?style=flat)
 
 </div>
 
@@ -327,16 +327,10 @@ npm test           # pure-logic tests + jsdom DOM round-trip tests
 npm run icons      # regenerate PNG icons (pure-Python, no deps)
 ```
 
-`npm test` covers URL keying, the Markdown renderer (including link/HTML sanitising), the
-anchoring matcher, all five exporters (including a CRC‑checked `.docx` ZIP), local
-backup/restore (merge & replace), and full wrap → remove → reload‑restore round‑trips
-(plus `clearAll`) in jsdom — 78 assertions.
-
-**Automation hook.** Page‑context scripts and browser automation can drive WebMark without
-the toolbar click by dispatching a DOM event:
-`document.dispatchEvent(new CustomEvent('webmark:control', { detail: 'open' }))`
-(`detail` = `open` | `close` | `toggle` | `capture`). Handy for end‑to‑end testing and
-integrations.
+`npm test` covers URL keying, Markdown and export sanitising, text anchoring, all five
+exporters (including a CRC‑checked `.docx` ZIP), validated backup/restore, ordered storage
+operations, PDF render/message coordination, panel privacy and cross‑tab/SPA behaviour, and
+full wrap → remove → reload‑restore round‑trips in jsdom — 126 assertions.
 
 ---
 
