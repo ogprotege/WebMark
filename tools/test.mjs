@@ -10,33 +10,15 @@ const files = [
   "src/core/storage.js",
   "src/core/highlighter.js",
   "src/core/export.js",
+  "src/pdf/render-coordinator.js",
+  "src/pdf/panel-messages.js",
 ];
 for (const f of files) {
   vm.runInThisContext(readFileSync(new URL("../" + f, import.meta.url), "utf8"), { filename: f });
 }
 const W = globalThis.WebMark;
-
-let RenderCoordinator = null;
-try {
-  vm.runInThisContext(
-    readFileSync(new URL("../src/pdf/render-coordinator.js", import.meta.url), "utf8"),
-    { filename: "src/pdf/render-coordinator.js" }
-  );
-  RenderCoordinator = W.RenderCoordinator;
-} catch {
-  // The availability assertion below reports a useful red test before the helper exists.
-}
-
-let PanelMessageRouter = null;
-try {
-  vm.runInThisContext(
-    readFileSync(new URL("../src/pdf/panel-messages.js", import.meta.url), "utf8"),
-    { filename: "src/pdf/panel-messages.js" }
-  );
-  PanelMessageRouter = W.PanelMessageRouter;
-} catch {
-  // The availability assertion below reports a useful red test before the helper exists.
-}
+const RenderCoordinator = W.RenderCoordinator;
+const PanelMessageRouter = W.PanelMessageRouter;
 
 let pass = 0, fail = 0;
 function eq(actual, expected, msg) {
@@ -472,7 +454,6 @@ if (isSupportedPageUrl) {
 /* ---- PDF render coordination ---- */
 ok(typeof RenderCoordinator === "function",
    "PDF rendering exposes a reusable in-flight coordinator");
-if (RenderCoordinator) {
   const coordinator = new RenderCoordinator();
   let releaseFirst;
   let starts = 0;
@@ -510,12 +491,10 @@ if (RenderCoordinator) {
   coordinator.invalidate("page-3");
   await invalidatedBeforeStart;
   ok(!invalidatedTaskStarted, "renders invalidated before startup do no work");
-}
 
 /* ---- PDF panel message readiness ---- */
 ok(typeof PanelMessageRouter === "function",
    "PDF panel messages have a readiness-aware router");
-if (PanelMessageRouter) {
   let resolvePanel;
   const ready = new Promise((resolve) => { resolvePanel = resolve; });
   const calls = [];
@@ -537,7 +516,6 @@ if (PanelMessageRouter) {
   eq(await router.dispatch({ type: "capture" }), true, "capture message is delivered");
   eq(calls.slice(-2), ["open", "capture"], "capture opens the panel before capturing");
   eq(await router.dispatch({ type: "unknown" }), false, "unknown panel messages are ignored");
-}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

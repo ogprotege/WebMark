@@ -2,6 +2,13 @@
 // works in a content-script isolated world and inside the PDF reader page.
 (function () {
   const W = (globalThis.WebMark = globalThis.WebMark || {});
+  const COLORS = [
+    { id: "yellow", label: "Yellow", css: "#fde68a" },
+    { id: "green", label: "Green", css: "#bbf7d0" },
+    { id: "blue", label: "Blue", css: "#bfdbfe" },
+    { id: "pink", label: "Pink", css: "#fbcfe8" },
+    { id: "orange", label: "Orange", css: "#fed7aa" },
+  ];
 
   const TRACKING_PARAMS = [
     "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
@@ -88,4 +95,5 @@
     todayIso,
     TRACKING_PARAMS,
   };
+  W.COLORS = COLORS;
 })();

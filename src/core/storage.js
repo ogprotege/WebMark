@@ -6,7 +6,7 @@
   const W = (globalThis.WebMark = globalThis.WebMark || {});
   const PREFIX = "wm:";
   const SETTINGS_KEY = "wm:settings";
-  const VALID_COLORS = new Set(["yellow", "green", "blue", "pink", "orange"]);
+  const VALID_COLORS = new Set(W.COLORS.map((color) => color.id));
 
   const DEFAULT_SETTINGS = {
     autoOpenPdf: true,
